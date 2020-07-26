@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use crate::tests::util::Dir;
 use crate::WalkDir;
+use crate::DefaultSourceExt;
 
 #[test]
 fn send_sync_traits() {
@@ -22,7 +23,7 @@ fn send_sync_traits() {
 #[test]
 fn empty() {
     let dir = Dir::tmp();
-    let wd = WalkDir::new(dir.path());
+    let wd = WalkDir::<DefaultSourceExt>::new(dir.path());
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
@@ -968,7 +969,10 @@ fn regression_skip_current_dir() {
     dir.mkdirp("foo/a/b");
     dir.mkdirp("foo/1/2");
 
-    let mut wd = WalkDir::new(dir.path()).max_open(1).into_iter();
+//    let mut wd = WalkDir::new(dir.path()).max_open(1).into_iter();
+    let mut wd1 = WalkDir::new(dir.path());
+    let mut wd2 = wd1.max_open(1);
+    let mut wd  = wd2.into_iter();
     wd.next();
     wd.next();
     wd.next();

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::result;
 
 use crate::{DirEntry, Error};
+use crate::SourceExt;
 
 /// Create an error from a format!-like syntax.
 #[macro_export]
@@ -20,12 +21,12 @@ pub type Result<T> = result::Result<T, Box<dyn error::Error + Send + Sync>>;
 
 /// The result of running a recursive directory iterator on a single directory.
 #[derive(Debug)]
-pub struct RecursiveResults {
-    ents: Vec<DirEntry>,
+pub struct RecursiveResults<E: SourceExt> {
+    ents: Vec<DirEntry<E>>,
     errs: Vec<Error>,
 }
 
-impl RecursiveResults {
+impl<E: SourceExt> RecursiveResults<E> {
     /// Return all of the errors encountered during traversal.
     pub fn errs(&self) -> &[Error] {
         &self.errs
@@ -42,7 +43,7 @@ impl RecursiveResults {
 
     /// Return all the successfully retrieved directory entries in the order
     /// in which they were retrieved.
-    pub fn ents(&self) -> &[DirEntry] {
+    pub fn ents(&self) -> &[DirEntry<E>] {
         &self.ents
     }
 
@@ -55,7 +56,7 @@ impl RecursiveResults {
 
     /// Return all the successfully retrieved directory entries, sorted
     /// lexicographically by their full file path.
-    pub fn sorted_ents(&self) -> Vec<DirEntry> {
+    pub fn sorted_ents(&self) -> Vec<DirEntry<E>> {
         let mut ents = self.ents.clone();
         ents.sort_by(|e1, e2| e1.path().cmp(e2.path()));
         ents
@@ -98,9 +99,10 @@ impl Dir {
 
     /// Run the given iterator and return the result as a distinct collection
     /// of directory entries and errors.
-    pub fn run_recursive<I>(&self, it: I) -> RecursiveResults
+    pub fn run_recursive<I, E>(&self, it: I) -> RecursiveResults<E>
     where
-        I: IntoIterator<Item = result::Result<DirEntry, Error>>,
+        I: IntoIterator<Item = result::Result<DirEntry<E>, Error>>,
+        E: SourceExt,
     {
         let mut results = RecursiveResults { ents: vec![], errs: vec![] };
         for result in it {

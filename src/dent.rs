@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use crate::error::Error;
 use crate::Result;
 
+use crate::source::{SourceExt, SourceDirEntryExt, DefaultSourceExt};
+
 /// A directory entry.
 ///
 /// This is the type of value that is yielded from the iterators defined in
@@ -32,7 +34,7 @@ use crate::Result;
 /// [`file_name`]: #method.file_name
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
 /// [`DirEntryExt`]: trait.DirEntryExt.html
-pub struct DirEntry {
+pub struct DirEntry<E: SourceExt = DefaultSourceExt> {
     /// The path as reported by the [`fs::ReadDir`] iterator (even if it's a
     /// symbolic link).
     ///
@@ -45,20 +47,11 @@ pub struct DirEntry {
     follow_link: bool,
     /// The depth at which this entry was generated relative to the root.
     depth: usize,
-    /// The underlying inode number (Unix only).
-    #[cfg(unix)]
-    ino: u64,
-    /// The underlying metadata (Windows only). We store this on Windows
-    /// because this comes for free while reading a directory.
-    ///
-    /// We use this to determine whether an entry is a directory or not, which
-    /// works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    #[cfg(windows)]
-    metadata: fs::Metadata,
+    /// The source-specific part.
+    ext: E::DirEntryExt,
 }
 
-impl DirEntry {
+impl<E: SourceExt> DirEntry<E> {
     /// The full path that this entry represents.
     ///
     /// The full path is created by joining the parents of this entry up to the
@@ -127,25 +120,15 @@ impl DirEntry {
         self.metadata_internal()
     }
 
-    #[cfg(windows)]
     fn metadata_internal(&self) -> Result<fs::Metadata> {
         if self.follow_link {
             fs::metadata(&self.path)
         } else {
-            Ok(self.metadata.clone())
+            self.ext.symlink_metadata(&self)
         }
         .map_err(|err| Error::from_entry(self, err))
     }
 
-    #[cfg(not(windows))]
-    fn metadata_internal(&self) -> Result<fs::Metadata> {
-        if self.follow_link {
-            fs::metadata(&self.path)
-        } else {
-            fs::symlink_metadata(&self.path)
-        }
-        .map_err(|err| Error::from_entry(self, err))
-    }
 
     /// Return the file type for the file that this entry points to.
     ///
@@ -177,84 +160,34 @@ impl DirEntry {
     }
 
     /// Returns true if and only if this entry points to a directory.
-    ///
-    /// This works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    #[cfg(windows)]
     pub(crate) fn is_dir(&self) -> bool {
-        use std::os::windows::fs::MetadataExt;
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
-        self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+        self.ext.is_dir(&self)
     }
 
-    /// Returns true if and only if this entry points to a directory.
-    #[cfg(not(windows))]
-    pub(crate) fn is_dir(&self) -> bool {
-        self.ty.is_dir()
-    }
-
-    #[cfg(windows)]
     pub(crate) fn from_entry(
         depth: usize,
         ent: &fs::DirEntry,
-    ) -> Result<DirEntry> {
+    ) -> Result<DirEntry<E>> {
         let path = ent.path();
         let ty = ent
             .file_type()
             .map_err(|err| Error::from_path(depth, path.clone(), err))?;
-        let md = ent
-            .metadata()
+        let ext = E::DirEntryExt::from_entry(ent)
             .map_err(|err| Error::from_path(depth, path.clone(), err))?;
         Ok(DirEntry {
             path: path,
             ty: ty,
             follow_link: false,
             depth: depth,
-            metadata: md,
+            ext,
         })
     }
-
-    #[cfg(unix)]
-    pub(crate) fn from_entry(
-        depth: usize,
-        ent: &fs::DirEntry,
-    ) -> Result<DirEntry> {
-        use std::os::unix::fs::DirEntryExt;
-
-        let ty = ent
-            .file_type()
-            .map_err(|err| Error::from_path(depth, ent.path(), err))?;
-        Ok(DirEntry {
-            path: ent.path(),
-            ty: ty,
-            follow_link: false,
-            depth: depth,
-            ino: ent.ino(),
-        })
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    pub(crate) fn from_entry(
-        depth: usize,
-        ent: &fs::DirEntry,
-    ) -> Result<DirEntry> {
-        let ty = ent
-            .file_type()
-            .map_err(|err| Error::from_path(depth, ent.path(), err))?;
-        Ok(DirEntry {
-            path: ent.path(),
-            ty: ty,
-            follow_link: false,
-            depth: depth,
-        })
-    }
-
-    #[cfg(windows)]
+ 
     pub(crate) fn from_path(
         depth: usize,
         pb: PathBuf,
         follow: bool,
-    ) -> Result<DirEntry> {
+    ) -> Result<DirEntry<E>> {
         let md = if follow {
             fs::metadata(&pb)
                 .map_err(|err| Error::from_path(depth, pb.clone(), err))?
@@ -267,93 +200,26 @@ impl DirEntry {
             ty: md.file_type(),
             follow_link: follow,
             depth: depth,
-            metadata: md,
-        })
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn from_path(
-        depth: usize,
-        pb: PathBuf,
-        follow: bool,
-    ) -> Result<DirEntry> {
-        use std::os::unix::fs::MetadataExt;
-
-        let md = if follow {
-            fs::metadata(&pb)
-                .map_err(|err| Error::from_path(depth, pb.clone(), err))?
-        } else {
-            fs::symlink_metadata(&pb)
-                .map_err(|err| Error::from_path(depth, pb.clone(), err))?
-        };
-        Ok(DirEntry {
-            path: pb,
-            ty: md.file_type(),
-            follow_link: follow,
-            depth: depth,
-            ino: md.ino(),
-        })
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    pub(crate) fn from_path(
-        depth: usize,
-        pb: PathBuf,
-        follow: bool,
-    ) -> Result<DirEntry> {
-        let md = if follow {
-            fs::metadata(&pb)
-                .map_err(|err| Error::from_path(depth, pb.clone(), err))?
-        } else {
-            fs::symlink_metadata(&pb)
-                .map_err(|err| Error::from_path(depth, pb.clone(), err))?
-        };
-        Ok(DirEntry {
-            path: pb,
-            ty: md.file_type(),
-            follow_link: follow,
-            depth: depth,
+            ext: E::DirEntryExt::from_metadata(md),
         })
     }
 }
 
-impl Clone for DirEntry {
-    #[cfg(windows)]
-    fn clone(&self) -> DirEntry {
+impl<E: SourceExt> Clone for DirEntry<E> {
+    fn clone(&self) -> DirEntry<E> {
         DirEntry {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
             depth: self.depth,
-            metadata: self.metadata.clone(),
-        }
-    }
-
-    #[cfg(unix)]
-    fn clone(&self) -> DirEntry {
-        DirEntry {
-            path: self.path.clone(),
-            ty: self.ty,
-            follow_link: self.follow_link,
-            depth: self.depth,
-            ino: self.ino,
-        }
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    fn clone(&self) -> DirEntry {
-        DirEntry {
-            path: self.path.clone(),
-            ty: self.ty,
-            follow_link: self.follow_link,
-            depth: self.depth,
+            ext: self.ext.clone(),
         }
     }
 }
 
-impl fmt::Debug for DirEntry {
+impl<E: SourceExt> fmt::Debug for DirEntry<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DirEntry({:?})", self.path)
+        write!(f, "DirEntry(path={:?}, ext={:?})", self.path, self.ext)
     }
 }
 

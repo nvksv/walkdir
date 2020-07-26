@@ -4,6 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::DirEntry;
+use crate::source::SourceExt;
 
 /// An error produced by recursively walking a directory.
 ///
@@ -170,7 +171,7 @@ impl Error {
         }
     }
 
-    pub(crate) fn from_entry(dent: &DirEntry, err: io::Error) -> Self {
+    pub(crate) fn from_entry<E: SourceExt>(dent: &DirEntry<E>, err: io::Error) -> Self {
         Error {
             depth: dent.depth(),
             inner: ErrorInner::Io {
