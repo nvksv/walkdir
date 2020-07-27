@@ -71,6 +71,7 @@ impl<E: SourceExt> SourceDirEntryExt<E> for DirEntryWindowsExt {
     }
 }
 
+/// Windows-specific extensions
 #[derive(Debug, Clone)]
 pub struct WalkDirWindowsExt {
 }

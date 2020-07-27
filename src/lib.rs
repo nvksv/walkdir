@@ -35,7 +35,7 @@ use walkdir::WalkDir;
 # use walkdir::Error;
 
 # fn try_main() -> Result<(), Error> {
-for entry in WalkDir::new("foo") {
+for entry in <WalkDir>::new("foo") {
     println!("{}", entry?.path().display());
 }
 # Ok(())
@@ -50,7 +50,7 @@ access.)
 ```no_run
 use walkdir::WalkDir;
 
-for entry in WalkDir::new("foo").into_iter().filter_map(|e| e.ok()) {
+for entry in <WalkDir>::new("foo").into_iter().filter_map(|e| e.ok()) {
     println!("{}", entry.path().display());
 }
 ```
@@ -66,7 +66,7 @@ use walkdir::WalkDir;
 # use walkdir::Error;
 
 # fn try_main() -> Result<(), Error> {
-for entry in WalkDir::new("foo").follow_links(true) {
+for entry in <WalkDir>::new("foo").follow_links(true) {
     println!("{}", entry?.path().display());
 }
 # Ok(())
@@ -92,7 +92,7 @@ fn is_hidden(entry: &DirEntry) -> bool {
 }
 
 # fn try_main() -> Result<(), Error> {
-let walker = WalkDir::new("foo").into_iter();
+let walker = <WalkDir>::new("foo").into_iter();
 for entry in walker.filter_entry(|e| !is_hidden(e)) {
     println!("{}", entry?.path().display());
 }
@@ -123,9 +123,8 @@ pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 pub use crate::error::Error;
-pub use crate::source::{SourceExt, SourceIntoIterExt, SourceAncestorExt, DefaultSourceExt};
 
-mod source;
+pub mod source;
 mod dent;
 mod error;
 #[cfg(test)]
@@ -190,7 +189,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// # use walkdir::Error;
 ///
 /// # fn try_main() -> Result<(), Error> {
-/// for entry in WalkDir::new("foo").min_depth(1).max_depth(3) {
+/// for entry in <WalkDir>::new("foo").min_depth(1).max_depth(3) {
 ///     println!("{}", entry?.path().display());
 /// }
 /// # Ok(())
@@ -210,7 +209,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// # use walkdir::Error;
 ///
 /// # fn try_main() -> Result<(), Error> {
-/// for entry in WalkDir::new("foo").min_depth(1) {
+/// for entry in <WalkDir>::new("foo").min_depth(1) {
 ///     println!("{}", entry?.path().display());
 /// }
 /// # Ok(())
@@ -232,14 +231,14 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// Note that when following symbolic/soft links, loops are detected and an
 /// error is reported.
 #[derive(Debug)]
-pub struct WalkDir<E: SourceExt = DefaultSourceExt> {
+pub struct WalkDir<E: source::SourceExt = source::DefaultSourceExt> {
     opts: WalkDirOptions<E>,
     root: PathBuf,
     /// Extension part
     ext: E,
 }
 
-struct WalkDirOptions<E: SourceExt> {
+struct WalkDirOptions<E: source::SourceExt> {
     follow_links: bool,
     max_open: usize,
     min_depth: usize,
@@ -259,7 +258,7 @@ struct WalkDirOptions<E: SourceExt> {
     ext: E::OptionsExt,
 }
 
-impl<E: SourceExt> fmt::Debug for WalkDirOptions<E> {
+impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
     fn fmt(
         &self,
         f: &mut fmt::Formatter<'_>,
@@ -283,7 +282,7 @@ impl<E: SourceExt> fmt::Debug for WalkDirOptions<E> {
     }
 }
 
-impl<E: SourceExt> WalkDir<E> {
+impl<E: source::SourceExt> WalkDir<E> {
     /// Create a builder for a recursive directory iterator starting at the
     /// file path `root`. If `root` is a directory, then it is the first item
     /// yielded by the iterator. If `root` is a file, then it is the first
@@ -393,12 +392,12 @@ impl<E: SourceExt> WalkDir<E> {
     /// paths in sorted order. The compare function will be called to compare
     /// entries from the same directory.
     ///
-    /// ```rust,no-run
+    /// ```rust,no_run
     /// use std::cmp;
     /// use std::ffi::OsString;
     /// use walkdir::WalkDir;
     ///
-    /// WalkDir::new("foo").sort_by(|a,b| a.file_name().cmp(b.file_name()));
+    /// <WalkDir>::new("foo").sort_by(|a,b| a.file_name().cmp(b.file_name()));
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
     where
@@ -437,7 +436,7 @@ impl<E: SourceExt> WalkDir<E> {
     /// ```no_run
     /// use walkdir::WalkDir;
     ///
-    /// for entry in WalkDir::new("foo") {
+    /// for entry in <WalkDir>::new("foo") {
     ///     let entry = entry.unwrap();
     ///     println!("{}", entry.path().display());
     /// }
@@ -454,7 +453,7 @@ impl<E: SourceExt> WalkDir<E> {
     /// ```no_run
     /// use walkdir::WalkDir;
     ///
-    /// for entry in WalkDir::new("foo").contents_first(true) {
+    /// for entry in <WalkDir>::new("foo").contents_first(true) {
     ///     let entry = entry.unwrap();
     ///     println!("{}", entry.path().display());
     /// }
@@ -484,11 +483,13 @@ impl<E: SourceExt> WalkDir<E> {
     }
 }
 
-impl<E: SourceExt> IntoIterator for WalkDir<E> {
+impl<E: source::SourceExt> IntoIterator for WalkDir<E> {
     type Item = Result<DirEntry<E>>;
     type IntoIter = IntoIter<E>;
 
     fn into_iter(self) -> IntoIter<E> {
+        use crate::source::SourceIntoIterExt;
+
         IntoIter {
             opts: self.opts,
             start: Some(self.root),
@@ -515,7 +516,7 @@ impl<E: SourceExt> IntoIterator for WalkDir<E> {
 /// [`WalkDir`]: struct.WalkDir.html
 /// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
 #[derive(Debug)]
-pub struct IntoIter<E: SourceExt = DefaultSourceExt> {
+pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
     /// Options specified in the builder. Depths, max fds, etc.
     opts: WalkDirOptions<E>,
     /// The start path.
@@ -562,22 +563,24 @@ pub struct IntoIter<E: SourceExt = DefaultSourceExt> {
 /// An ancestor is an item in the directory tree traversed by walkdir, and is
 /// used to check for loops in the tree when traversing symlinks.
 #[derive(Debug)]
-pub struct Ancestor<E: SourceExt> {
+pub struct Ancestor<E: source::SourceExt> {
     /// The path of this ancestor.
     path: PathBuf,
     /// Extension part
     ext: E::AncestorExt,
 }
 
-impl<E: SourceExt> Ancestor<E> {
+impl<E: source::SourceExt> Ancestor<E> {
     /// Create a new ancestor from the given directory path.
     fn new(dent: &DirEntry<E>) -> io::Result<Self> {
+        use crate::source::SourceAncestorExt;
         Ok(Self { path: dent.path().to_path_buf(), ext: E::AncestorExt::new(dent)? })
     }
 
     /// Returns true if and only if the given open file handle corresponds to
     /// the same directory as this ancestor.
     fn is_same(&self, child: &Handle) -> io::Result<bool> {
+        use crate::source::SourceAncestorExt;
         self.ext.is_same(self, child)
     }
 }
@@ -592,7 +595,7 @@ impl<E: SourceExt> Ancestor<E> {
 /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
 /// [`Vec<fs::DirEntry>`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html
 #[derive(Debug)]
-enum DirList<E: SourceExt> {
+enum DirList<E: source::SourceExt> {
     /// An opened handle.
     ///
     /// This includes the depth of the handle itself.
@@ -610,7 +613,7 @@ enum DirList<E: SourceExt> {
     Closed(vec::IntoIter<Result<DirEntry<E>>>),
 }
 
-impl<E: SourceExt> Iterator for IntoIter<E> {
+impl<E: source::SourceExt> Iterator for IntoIter<E> {
     type Item = Result<DirEntry<E>>;
     /// Advances the iterator and returns the next value.
     ///
@@ -625,7 +628,7 @@ impl<E: SourceExt> Iterator for IntoIter<E> {
                     .map_err(|e| Error::from_path(0, start.clone(), e));
                 self.root_device = Some(itry!(result));
             }
-            let dent = itry!(DirEntry::from_path(0, start, false));
+            let dent = itry!(DirEntry::<E>::from_path(0, start, false));
             if let Some(result) = self.handle_entry(dent) {
                 return Some(result);
             }
@@ -668,7 +671,7 @@ impl<E: SourceExt> Iterator for IntoIter<E> {
     }
 }
 
-impl<E: SourceExt> IntoIter<E> {
+impl<E: source::SourceExt> IntoIter<E> {
     /// Skips the current directory.
     ///
     /// This causes the iterator to stop traversing the contents of the least
@@ -690,7 +693,7 @@ impl<E: SourceExt> IntoIter<E> {
     ///          .unwrap_or(false)
     /// }
     ///
-    /// let mut it = WalkDir::new("foo").into_iter();
+    /// let mut it = <WalkDir>::new("foo").into_iter();
     /// loop {
     ///     let entry = match it.next() {
     ///         None => break,
@@ -741,7 +744,7 @@ impl<E: SourceExt> IntoIter<E> {
     /// }
     ///
     /// # fn try_main() -> Result<(), Error> {
-    /// for entry in WalkDir::new("foo")
+    /// for entry in <WalkDir>::new("foo")
     ///                      .into_iter()
     ///                      .filter_entry(|e| !is_hidden(e)) {
     ///     println!("{}", entry?.path().display());
@@ -766,7 +769,7 @@ impl<E: SourceExt> IntoIter<E> {
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
     where
-        P: FnMut(&DirEntry) -> bool,
+        P: FnMut(&DirEntry<E>) -> bool
     {
         FilterEntry { it: self, predicate: predicate }
     }
@@ -891,7 +894,7 @@ impl<E: SourceExt> IntoIter<E> {
 
     fn follow(&self, mut dent: DirEntry<E>) -> Result<DirEntry<E>> {
         dent =
-            DirEntry::from_path(self.depth, dent.path().to_path_buf(), true)?;
+            DirEntry::<E>::from_path(self.depth, dent.path().to_path_buf(), true)?;
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
@@ -933,7 +936,7 @@ impl<E: SourceExt> IntoIter<E> {
     }
 }
 
-impl<E: SourceExt> DirList<E> {
+impl<E: source::SourceExt> DirList<E> {
     fn close(&mut self) {
         if let DirList::Opened { .. } = *self {
             *self = DirList::Closed(self.collect::<Vec<_>>().into_iter());
@@ -941,7 +944,7 @@ impl<E: SourceExt> DirList<E> {
     }
 }
 
-impl<E: SourceExt> Iterator for DirList<E> {
+impl<E: source::SourceExt> Iterator for DirList<E> {
     type Item = Result<DirEntry<E>>;
 
     #[inline(always)]
@@ -989,7 +992,7 @@ pub struct FilterEntry<I, P> {
 impl<P, E> Iterator for FilterEntry<IntoIter<E>, P>
 where
     P: FnMut(&DirEntry<E>) -> bool,
-    E: SourceExt,
+    E: source::SourceExt,
 {
     type Item = Result<DirEntry<E>>;
 
@@ -1019,7 +1022,7 @@ where
 impl<P, E> FilterEntry<IntoIter<E>, P>
 where
     P: FnMut(&DirEntry<E>) -> bool,
-    E: SourceExt,
+    E: source::SourceExt,
 {
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
@@ -1044,7 +1047,7 @@ where
     /// }
     ///
     /// # fn try_main() -> Result<(), Error> {
-    /// for entry in WalkDir::new("foo")
+    /// for entry in <WalkDir>::new("foo")
     ///                      .into_iter()
     ///                      .filter_entry(|e| !is_hidden(e)) {
     ///     println!("{}", entry?.path().display());
@@ -1092,7 +1095,7 @@ where
     ///          .unwrap_or(false)
     /// }
     ///
-    /// let mut it = WalkDir::new("foo").into_iter();
+    /// let mut it = <WalkDir>::new("foo").into_iter();
     /// loop {
     ///     let entry = match it.next() {
     ///         None => break,

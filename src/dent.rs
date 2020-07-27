@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Error;
 use crate::Result;
-
-use crate::source::{SourceExt, SourceDirEntryExt, DefaultSourceExt};
+use crate::source;
 
 /// A directory entry.
 ///
@@ -34,7 +33,7 @@ use crate::source::{SourceExt, SourceDirEntryExt, DefaultSourceExt};
 /// [`file_name`]: #method.file_name
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
 /// [`DirEntryExt`]: trait.DirEntryExt.html
-pub struct DirEntry<E: SourceExt = DefaultSourceExt> {
+pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// The path as reported by the [`fs::ReadDir`] iterator (even if it's a
     /// symbolic link).
     ///
@@ -51,7 +50,7 @@ pub struct DirEntry<E: SourceExt = DefaultSourceExt> {
     ext: E::DirEntryExt,
 }
 
-impl<E: SourceExt> DirEntry<E> {
+impl<E: source::SourceExt> DirEntry<E> {
     /// The full path that this entry represents.
     ///
     /// The full path is created by joining the parents of this entry up to the
@@ -121,6 +120,8 @@ impl<E: SourceExt> DirEntry<E> {
     }
 
     fn metadata_internal(&self) -> Result<fs::Metadata> {
+        use crate::source::SourceDirEntryExt;
+
         if self.follow_link {
             fs::metadata(&self.path)
         } else {
@@ -161,6 +162,7 @@ impl<E: SourceExt> DirEntry<E> {
 
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
+        use crate::source::SourceDirEntryExt;
         self.ext.is_dir(&self)
     }
 
@@ -168,6 +170,8 @@ impl<E: SourceExt> DirEntry<E> {
         depth: usize,
         ent: &fs::DirEntry,
     ) -> Result<DirEntry<E>> {
+        use crate::source::SourceDirEntryExt;
+
         let path = ent.path();
         let ty = ent
             .file_type()
@@ -188,6 +192,8 @@ impl<E: SourceExt> DirEntry<E> {
         pb: PathBuf,
         follow: bool,
     ) -> Result<DirEntry<E>> {
+        use crate::source::SourceDirEntryExt;
+
         let md = if follow {
             fs::metadata(&pb)
                 .map_err(|err| Error::from_path(depth, pb.clone(), err))?
@@ -205,7 +211,7 @@ impl<E: SourceExt> DirEntry<E> {
     }
 }
 
-impl<E: SourceExt> Clone for DirEntry<E> {
+impl<E: source::SourceExt> Clone for DirEntry<E> {
     fn clone(&self) -> DirEntry<E> {
         DirEntry {
             path: self.path.clone(),
@@ -217,7 +223,7 @@ impl<E: SourceExt> Clone for DirEntry<E> {
     }
 }
 
-impl<E: SourceExt> fmt::Debug for DirEntry<E> {
+impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "DirEntry(path={:?}, ext={:?})", self.path, self.ext)
     }

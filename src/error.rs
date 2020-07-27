@@ -99,13 +99,13 @@ impl Error {
     ///
     /// # Example
     ///
-    /// ```rust,no-run
+    /// ```rust,no_run
     /// use std::io;
     /// use std::path::Path;
     ///
     /// use walkdir::WalkDir;
     ///
-    /// for entry in WalkDir::new("foo") {
+    /// for entry in <WalkDir>::new("foo") {
     ///     match entry {
     ///         Ok(entry) => println!("{}", entry.path().display()),
     ///         Err(err) => {

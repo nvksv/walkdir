@@ -11,6 +11,7 @@ use same_file::Handle;
 use crate::dent::DirEntry;
 use crate::Ancestor;
 
+/// Useful stub for nothing
 #[derive(Debug, Clone, Default)]
 pub struct Nil {}
 
@@ -46,10 +47,10 @@ impl<E: SourceExt> SourceDirEntryExt<E> for Nil {
 }
 
 impl SourceExt for Nil {
-    type OptionsExt = Self;
-    type IntoIterExt = Self;
-    type AncestorExt = Self;
-    type DirEntryExt = Self;
+    type OptionsExt = Nil;
+    type IntoIterExt = Nil;
+    type AncestorExt = Nil;
+    type DirEntryExt = Nil;
 
     #[allow(unused_variables)]
     fn new<P: AsRef<Path>>(root: P) -> Self {

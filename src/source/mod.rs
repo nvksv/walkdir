@@ -1,3 +1,6 @@
+/*!
+Source-specific extensions for directory walking
+*/
 mod stub;
 #[cfg(unix)]
 mod unix;
@@ -47,16 +50,21 @@ pub trait SourceAncestorExt<E: SourceExt>: Debug + Sized {
     }
 }
 
+/// Extensions for DirEntry
 pub trait SourceDirEntryExt<E: SourceExt>: Debug + Clone {
+    /// Get metadata for symlink
     fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata> {
         fs::symlink_metadata(entry.path())
     }
 
+    /// Check if this entry is a directory
     fn is_dir(&self, entry: &DirEntry<E>) -> bool {
         entry.file_type().is_dir()
     }
 
+    /// Create extension from DirEntry
     fn from_entry(ent: &fs::DirEntry) -> io::Result<Self>;
+    /// Create extension from metadata
     fn from_metadata(md: fs::Metadata) -> Self;
 }
 

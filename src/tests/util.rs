@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::result;
 
 use crate::{DirEntry, Error};
-use crate::SourceExt;
+use crate::source;
 
 /// Create an error from a format!-like syntax.
 #[macro_export]
@@ -21,12 +21,12 @@ pub type Result<T> = result::Result<T, Box<dyn error::Error + Send + Sync>>;
 
 /// The result of running a recursive directory iterator on a single directory.
 #[derive(Debug)]
-pub struct RecursiveResults<E: SourceExt> {
+pub struct RecursiveResults<E: source::SourceExt> {
     ents: Vec<DirEntry<E>>,
     errs: Vec<Error>,
 }
 
-impl<E: SourceExt> RecursiveResults<E> {
+impl<E: source::SourceExt> RecursiveResults<E> {
     /// Return all of the errors encountered during traversal.
     pub fn errs(&self) -> &[Error] {
         &self.errs
@@ -102,7 +102,7 @@ impl Dir {
     pub fn run_recursive<I, E>(&self, it: I) -> RecursiveResults<E>
     where
         I: IntoIterator<Item = result::Result<DirEntry<E>, Error>>,
-        E: SourceExt,
+        E: source::SourceExt,
     {
         let mut results = RecursiveResults { ents: vec![], errs: vec![] };
         for result in it {
