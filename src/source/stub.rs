@@ -1,6 +1,5 @@
 use crate::source::{SourceExt, SourceIntoIterExt, SourceAncestorExt, SourceDirEntryExt};
 
-use std::path::Path;
 use std::fmt::Debug;
 use std::io;
 use std::fs;
@@ -35,6 +34,14 @@ impl<E: SourceExt> SourceAncestorExt<E> for Nil {
 }
 
 impl<E: SourceExt> SourceDirEntryExt<E> for Nil {
+    fn metadata<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::Metadata> {
+        fs::symlink_metadata(path)
+    }
+
+    fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata> {
+        fs::symlink_metadata(entry.path())
+    }
+
     #[allow(unused_variables)]
     fn from_entry(ent: &fs::DirEntry) -> io::Result<Self> {
         Ok(Self {})
@@ -52,10 +59,21 @@ impl SourceExt for Nil {
     type AncestorExt = Nil;
     type DirEntryExt = Nil;
 
+    type PathBuf = std::path::PathBuf;
+    type Path = std::path::Path;
+
     #[allow(unused_variables)]
-    fn new<P: AsRef<Path>>(root: P) -> Self {
+    fn new<P: AsRef<Self::Path>>(root: P) -> Self {
         Self {}
     }
+
+    fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64> {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "walkdir: same_file_system option not supported on this platform",
+        ))
+    }
+
 }
 
 

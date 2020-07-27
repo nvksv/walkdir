@@ -113,7 +113,6 @@ use std::cmp::{min, Ordering};
 use std::fmt;
 use std::fs::{self, ReadDir};
 use std::io;
-use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
 
@@ -123,6 +122,7 @@ pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 pub use crate::error::Error;
+use crate::source::SourcePath;
 
 pub mod source;
 mod dent;
@@ -233,7 +233,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 #[derive(Debug)]
 pub struct WalkDir<E: source::SourceExt = source::DefaultSourceExt> {
     opts: WalkDirOptions<E>,
-    root: PathBuf,
+    root: E::PathBuf,
     /// Extension part
     ext: E,
 }
@@ -290,7 +290,7 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// is always followed for the purposes of directory traversal. (A root
     /// `DirEntry` still obeys its documentation with respect to symlinks and
     /// the `follow_links` setting.)
-    pub fn new<P: AsRef<Path>>(root: P) -> Self {
+    pub fn new<P: AsRef<E::Path>>(root: P) -> Self {
         WalkDir {
             opts: WalkDirOptions {
                 follow_links: false,
@@ -523,7 +523,7 @@ pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
     ///
     /// This is only `Some(...)` at the beginning. After the first iteration,
     /// this is always `None`.
-    start: Option<PathBuf>,
+    start: Option<E::PathBuf>,
     /// A stack of open (up to max fd) or closed handles to directories.
     /// An open handle is a plain [`fs::ReadDir`] while a closed handle is
     /// a `Vec<fs::DirEntry>` corresponding to the as-of-yet consumed entries.
@@ -565,7 +565,7 @@ pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
 #[derive(Debug)]
 pub struct Ancestor<E: source::SourceExt> {
     /// The path of this ancestor.
-    path: PathBuf,
+    path: E::PathBuf,
     /// Extension part
     ext: E::AncestorExt,
 }
@@ -904,7 +904,7 @@ impl<E: source::SourceExt> IntoIter<E> {
         Ok(dent)
     }
 
-    fn check_loop<P: AsRef<Path>>(&self, child: P) -> Result<()> {
+    fn check_loop<P: AsRef<E::Path>>(&self, child: P) -> Result<()> {
         let hchild = Handle::from_path(&child)
             .map_err(|err| Error::from_io(self.depth, err))?;
         for ancestor in self.stack_path.iter().rev() {

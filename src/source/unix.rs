@@ -39,8 +39,17 @@ impl WalkDirSourceExt for WalkDirUnixExt {
     type AncestorExt = Nil;
     type DirEntryExt = DirEntryUnixExt;
 
-    fn new<P: AsRef<Path>>(root: P) -> Self {
+    type PathBuf = path::PathBuf;
+    type Path = path::Path;
+
+    fn new<P: AsRef<Self::Path>>(root: P) -> Self {
         Self {}
+    }
+
+    fn device_num<P: AsRef<Path>>(path: P) -> io::Result<u64> {
+        use std::os::unix::fs::MetadataExt;
+    
+        path.as_ref().metadata().map(|md| md.dev())
     }
 } 
 

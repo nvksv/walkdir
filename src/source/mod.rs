@@ -23,8 +23,8 @@ pub type DefaultSourceExt = WalkDirUnixExt;
 /// Default source-specific type.
 pub type DefaultSourceExt = WalkDirWindowsExt;
 
-use std::path::Path;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::io;
 use std::fs;
 //use std::marker::Sized;
@@ -33,6 +33,25 @@ use same_file::Handle;
 
 use crate::dent::DirEntry;
 use crate::Ancestor;
+
+pub trait SourcePath<PathBuf> {
+    fn to_path_buf(&self) -> PathBuf;
+}
+
+impl SourcePath<std::path::PathBuf> for std::path::Path {
+    #[inline(always)]
+    fn to_path_buf(&self) -> std::path::PathBuf {
+        self.to_path_buf()
+    }
+}
+
+impl SourcePath<std::string::String> for str {
+    #[inline(always)]
+    fn to_path_buf(&self) -> std::string::String {
+        self.to_string()
+    }
+}
+
 
 /// Extension for IntoIter
 pub trait SourceIntoIterExt<E: SourceExt> {
@@ -53,9 +72,10 @@ pub trait SourceAncestorExt<E: SourceExt>: Debug + Sized {
 /// Extensions for DirEntry
 pub trait SourceDirEntryExt<E: SourceExt>: Debug + Clone {
     /// Get metadata for symlink
-    fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata> {
-        fs::symlink_metadata(entry.path())
-    }
+    fn metadata<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::Metadata>;
+
+    /// Get metadata for symlink
+    fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata>;
 
     /// Check if this entry is a directory
     fn is_dir(&self, entry: &DirEntry<E>) -> bool {
@@ -79,6 +99,11 @@ pub trait SourceExt: Debug + Clone {
     /// Extension for DirEntry
     type DirEntryExt: SourceDirEntryExt<Self>;
 
+    type PathBuf: Debug + Clone + Deref<Target = Self::Path>;
+    type Path: ?Sized + SourcePath<Self::PathBuf>;
+
     /// Make new 
-    fn new<P: AsRef<Path>>(root: P) -> Self;
+    fn new<P: AsRef<Self::Path>>(root: P) -> Self;
+
+    fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64>;
 }

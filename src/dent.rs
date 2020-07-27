@@ -1,7 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, FileType};
-use std::path::{Path, PathBuf};
 
 use crate::error::Error;
 use crate::Result;
@@ -38,7 +37,7 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// symbolic link).
     ///
     /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
-    path: PathBuf,
+    path: E::PathBuf,
     /// The file type. Necessary for recursive iteration, so store it.
     ty: FileType,
     /// Is set when this entry was created from a symbolic link and the user
@@ -66,7 +65,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// [`WalkDir::new`]: struct.WalkDir.html#method.new
     /// [`path_is_symlink`]: struct.DirEntry.html#method.path_is_symlink
     /// [`std::fs::read_link`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &E::Path {
         &self.path
     }
 
@@ -75,7 +74,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// Analogous to [`path`], but moves ownership of the path.
     ///
     /// [`path`]: struct.DirEntry.html#method.path
-    pub fn into_path(self) -> PathBuf {
+    pub fn into_path(self) -> E::PathBuf {
         self.path
     }
 
@@ -189,7 +188,7 @@ impl<E: source::SourceExt> DirEntry<E> {
  
     pub(crate) fn from_path(
         depth: usize,
-        pb: PathBuf,
+        pb: E::PathBuf,
         follow: bool,
     ) -> Result<DirEntry<E>> {
         use crate::source::SourceDirEntryExt;

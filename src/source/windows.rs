@@ -1,6 +1,6 @@
 use crate::source::{SourceExt, SourceAncestorExt, SourceDirEntryExt, Nil};
 
-use std::path::Path;
+use std::path;
 use std::fmt::Debug;
 use std::io;
 use std::fs;
@@ -47,6 +47,10 @@ pub struct DirEntryWindowsExt {
 
 impl<E: SourceExt> SourceDirEntryExt<E> for DirEntryWindowsExt {
 
+    fn metadata<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::Metadata> {
+        fs::symlink_metadata(path)
+    }
+
     #[allow(unused_variables)]
     fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata> {
         Ok(self.metadata.clone())
@@ -82,10 +86,21 @@ impl SourceExt for WalkDirWindowsExt {
     type AncestorExt = AncestorWindowsExt;
     type DirEntryExt = DirEntryWindowsExt;
 
+    type PathBuf = path::PathBuf;
+    type Path = path::Path;
+
     #[allow(unused_variables)]
-    fn new<P: AsRef<Path>>(root: P) -> Self {
+    fn new<P: AsRef<Self::Path>>(root: P) -> Self {
         Self {}
     }
+
+    fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64> {
+        use winapi_util::{file, Handle};
+    
+        let h = Handle::from_path_any(path)?;
+        file::information(h).map(|info| info.volume_serial_number())
+    }
+    
 } 
 
 
