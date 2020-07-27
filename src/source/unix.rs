@@ -26,6 +26,11 @@ impl<E: SourceExt> SourceDirEntryExt<E> for DirEntryUnixExt {
     fn from_metadata(md: fs::Metadata) -> Self {
         Self { ino: md.ino() }
     }
+
+    fn read_dir<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::ReadDir> {
+        fs::read_dir(path.as_ref())
+    }
+
 }
 
 

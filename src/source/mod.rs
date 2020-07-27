@@ -25,6 +25,7 @@ pub type DefaultSourceExt = WalkDirWindowsExt;
 
 use std::fmt::Debug;
 use std::ops::Deref;
+use std::convert::AsRef;
 use std::io;
 use std::fs;
 //use std::marker::Sized;
@@ -37,6 +38,7 @@ use crate::Ancestor;
 pub trait SourcePath<PathBuf> {
     fn to_path_buf(&self) -> PathBuf;
 }
+
 
 impl SourcePath<std::path::PathBuf> for std::path::Path {
     #[inline(always)]
@@ -77,6 +79,9 @@ pub trait SourceDirEntryExt<E: SourceExt>: Debug + Clone {
     /// Get metadata for symlink
     fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata>;
 
+    /// Get metadata for symlink
+    fn read_dir<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::ReadDir>;
+
     /// Check if this entry is a directory
     fn is_dir(&self, entry: &DirEntry<E>) -> bool {
         entry.file_type().is_dir()
@@ -99,8 +104,8 @@ pub trait SourceExt: Debug + Clone {
     /// Extension for DirEntry
     type DirEntryExt: SourceDirEntryExt<Self>;
 
-    type PathBuf: Debug + Clone + Deref<Target = Self::Path>;
-    type Path: ?Sized + SourcePath<Self::PathBuf>;
+    type PathBuf: Debug + Clone + Deref<Target = Self::Path> + AsRef<Self::Path>;
+    type Path: ?Sized + SourcePath<Self::PathBuf> + AsRef<Self::Path>;
 
     /// Make new 
     fn new<P: AsRef<Self::Path>>(root: P) -> Self;

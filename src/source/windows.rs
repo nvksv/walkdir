@@ -56,6 +56,10 @@ impl<E: SourceExt> SourceDirEntryExt<E> for DirEntryWindowsExt {
         Ok(self.metadata.clone())
     }
 
+    fn read_dir<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::ReadDir> {
+        fs::read_dir(path.as_ref())
+    }
+
     /// This works around a bug in Rust's standard library:
     /// https://github.com/rust-lang/rust/issues/46484
     #[allow(unused_variables)]

@@ -111,7 +111,7 @@ doc_comment::doctest!("../README.md");
 
 use std::cmp::{min, Ordering};
 use std::fmt;
-use std::fs::{self, ReadDir};
+use std::fs::ReadDir;
 use std::io;
 use std::result;
 use std::vec;
@@ -122,14 +122,13 @@ pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 pub use crate::error::Error;
-use crate::source::SourcePath;
+use crate::source::{SourcePath, SourceDirEntryExt};
 
 pub mod source;
 mod dent;
 mod error;
 #[cfg(test)]
 mod tests;
-mod util;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -154,7 +153,7 @@ macro_rules! itry {
 ///
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
 /// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
-pub type Result<T> = ::std::result::Result<T, Error>;
+pub type Result<T, E: source::SourceExt = source::DefaultSourceExt> = ::std::result::Result<T, Error<E>>;
 
 /// A builder to create an iterator for recursively walking a directory.
 ///
@@ -484,7 +483,7 @@ impl<E: source::SourceExt> WalkDir<E> {
 }
 
 impl<E: source::SourceExt> IntoIterator for WalkDir<E> {
-    type Item = Result<DirEntry<E>>;
+    type Item = Result<DirEntry<E>, E>;
     type IntoIter = IntoIter<E>;
 
     fn into_iter(self) -> IntoIter<E> {
@@ -606,25 +605,25 @@ enum DirList<E: source::SourceExt> {
     ///
     /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
     /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
-    Opened { depth: usize, it: result::Result<ReadDir, Option<Error>> },
+    Opened { depth: usize, it: result::Result<ReadDir, Option<Error<E>>> },
     /// A closed handle.
     ///
     /// All remaining directory entries are read into memory.
-    Closed(vec::IntoIter<Result<DirEntry<E>>>),
+    Closed(vec::IntoIter<Result<DirEntry<E>, E>>),
 }
 
 impl<E: source::SourceExt> Iterator for IntoIter<E> {
-    type Item = Result<DirEntry<E>>;
+    type Item = Result<DirEntry<E>, E>;
     /// Advances the iterator and returns the next value.
     ///
     /// # Errors
     ///
     /// If the iterator fails to retrieve the next value, this method returns
     /// an error value. The error will be wrapped in an Option::Some.
-    fn next(&mut self) -> Option<Result<DirEntry<E>>> {
+    fn next(&mut self) -> Option<Result<DirEntry<E>, E>> {
         if let Some(start) = self.start.take() {
             if self.opts.same_file_system {
-                let result = util::device_num(&start)
+                let result = E::device_num(&start)
                     .map_err(|e| Error::from_path(0, start.clone(), e));
                 self.root_device = Some(itry!(result));
             }
@@ -777,7 +776,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     fn handle_entry(
         &mut self,
         mut dent: DirEntry<E>,
-    ) -> Option<Result<DirEntry<E>>> {
+    ) -> Option<Result<DirEntry<E>, E>> {
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
         }
@@ -798,7 +797,7 @@ impl<E: source::SourceExt> IntoIter<E> {
             // the follow_links setting. When it's disabled, it should report
             // itself as a symlink. When it's enabled, it should always report
             // itself as the target.
-            let md = itry!(fs::metadata(dent.path()).map_err(|err| {
+            let md = itry!(dent.ext.metadata(dent.path()).map_err(|err| {
                 Error::from_path(dent.depth(), dent.path().to_path_buf(), err)
             }));
             if md.file_type().is_dir() {
@@ -832,7 +831,7 @@ impl<E: source::SourceExt> IntoIter<E> {
         None
     }
 
-    fn push(&mut self, dent: &DirEntry<E>) -> Result<()> {
+    fn push(&mut self, dent: &DirEntry<E>) -> Result<(), E> {
         // Make room for another open file descriptor if we've hit the max.
         let free =
             self.stack_list.len().checked_sub(self.oldest_opened).unwrap();
@@ -840,10 +839,10 @@ impl<E: source::SourceExt> IntoIter<E> {
             self.stack_list[self.oldest_opened].close();
         }
         // Open a handle to reading the directory's entries.
-        let rd = fs::read_dir(dent.path()).map_err(|err| {
+        let rd = dent.ext.read_dir(dent.path()).map_err(|err| {
             Some(Error::from_path(self.depth, dent.path().to_path_buf(), err))
         });
-        let mut list = DirList::Opened { depth: self.depth, it: rd };
+        let mut list = DirList::<E>::Opened { depth: self.depth, it: rd };
         if let Some(ref mut cmp) = self.opts.sorter {
             let mut entries: Vec<_> = list.collect();
             entries.sort_by(|a, b| match (a, b) {
@@ -852,7 +851,7 @@ impl<E: source::SourceExt> IntoIter<E> {
                 (&Ok(_), &Err(_)) => Ordering::Greater,
                 (&Err(_), &Ok(_)) => Ordering::Less,
             });
-            list = DirList::Closed(entries.into_iter());
+            list = DirList::<E>::Closed(entries.into_iter());
         }
         if self.opts.follow_links {
             let ancestor = Ancestor::new(&dent)
@@ -892,7 +891,7 @@ impl<E: source::SourceExt> IntoIter<E> {
         self.oldest_opened = min(self.oldest_opened, self.stack_list.len());
     }
 
-    fn follow(&self, mut dent: DirEntry<E>) -> Result<DirEntry<E>> {
+    fn follow(&self, mut dent: DirEntry<E>) -> Result<DirEntry<E>, E> {
         dent =
             DirEntry::<E>::from_path(self.depth, dent.path().to_path_buf(), true)?;
         // The only way a symlink can cause a loop is if it points
@@ -904,7 +903,7 @@ impl<E: source::SourceExt> IntoIter<E> {
         Ok(dent)
     }
 
-    fn check_loop<P: AsRef<E::Path>>(&self, child: P) -> Result<()> {
+    fn check_loop<P: AsRef<E::Path>>(&self, child: P) -> Result<(), E> {
         let hchild = Handle::from_path(&child)
             .map_err(|err| Error::from_io(self.depth, err))?;
         for ancestor in self.stack_path.iter().rev() {
@@ -912,7 +911,7 @@ impl<E: source::SourceExt> IntoIter<E> {
                 .is_same(&hchild)
                 .map_err(|err| Error::from_io(self.depth, err))?;
             if is_same {
-                return Err(Error::from_loop(
+                return Err(Error::<E>::from_loop(
                     self.depth,
                     &ancestor.path,
                     child.as_ref(),
@@ -922,8 +921,8 @@ impl<E: source::SourceExt> IntoIter<E> {
         Ok(())
     }
 
-    fn is_same_file_system(&mut self, dent: &DirEntry<E>) -> Result<bool> {
-        let dent_device = util::device_num(dent.path())
+    fn is_same_file_system(&mut self, dent: &DirEntry<E>) -> Result<bool, E> {
+        let dent_device = E::device_num(dent.path())
             .map_err(|err| Error::from_entry(dent, err))?;
         Ok(self
             .root_device
@@ -939,22 +938,22 @@ impl<E: source::SourceExt> IntoIter<E> {
 impl<E: source::SourceExt> DirList<E> {
     fn close(&mut self) {
         if let DirList::Opened { .. } = *self {
-            *self = DirList::Closed(self.collect::<Vec<_>>().into_iter());
+            *self = DirList::<E>::Closed(self.collect::<Vec<_>>().into_iter());
         }
     }
 }
 
 impl<E: source::SourceExt> Iterator for DirList<E> {
-    type Item = Result<DirEntry<E>>;
+    type Item = Result<DirEntry<E>, E>;
 
     #[inline(always)]
-    fn next(&mut self) -> Option<Result<DirEntry<E>>> {
+    fn next(&mut self) -> Option<Result<DirEntry<E>, E>> {
         match *self {
-            DirList::Closed(ref mut it) => it.next(),
-            DirList::Opened { depth, ref mut it } => match *it {
+            DirList::<E>::Closed(ref mut it) => it.next(),
+            DirList::<E>::Opened { depth, ref mut it } => match *it {
                 Err(ref mut err) => err.take().map(Err),
                 Ok(ref mut rd) => rd.next().map(|r| match r {
-                    Ok(r) => DirEntry::from_entry(depth + 1, &r),
+                    Ok(r) => DirEntry::<E>::from_entry(depth + 1, &r),
                     Err(err) => Err(Error::from_io(depth + 1, err)),
                 }),
             },
@@ -994,7 +993,7 @@ where
     P: FnMut(&DirEntry<E>) -> bool,
     E: source::SourceExt,
 {
-    type Item = Result<DirEntry<E>>;
+    type Item = Result<DirEntry<E>, E>;
 
     /// Advances the iterator and returns the next value.
     ///
@@ -1002,7 +1001,7 @@ where
     ///
     /// If the iterator fails to retrieve the next value, this method returns
     /// an error value. The error will be wrapped in an `Option::Some`.
-    fn next(&mut self) -> Option<Result<DirEntry<E>>> {
+    fn next(&mut self) -> Option<Result<DirEntry<E>, E>> {
         loop {
             let dent = match self.it.next() {
                 None => return None,

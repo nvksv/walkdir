@@ -35,12 +35,17 @@ impl<E: SourceExt> SourceAncestorExt<E> for Nil {
 
 impl<E: SourceExt> SourceDirEntryExt<E> for Nil {
     fn metadata<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::Metadata> {
-        fs::symlink_metadata(path)
+        fs::symlink_metadata(path.as_ref())
     }
 
     fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata> {
         fs::symlink_metadata(entry.path())
     }
+
+    fn read_dir<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::ReadDir> {
+        fs::read_dir(path.as_ref())
+    }
+
 
     #[allow(unused_variables)]
     fn from_entry(ent: &fs::DirEntry) -> io::Result<Self> {

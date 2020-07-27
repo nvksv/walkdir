@@ -46,7 +46,7 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// The depth at which this entry was generated relative to the root.
     depth: usize,
     /// The source-specific part.
-    ext: E::DirEntryExt,
+    pub(crate) ext: E::DirEntryExt,
 }
 
 impl<E: source::SourceExt> DirEntry<E> {
@@ -114,11 +114,11 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    pub fn metadata(&self) -> Result<fs::Metadata> {
+    pub fn metadata(&self) -> Result<fs::Metadata, E> {
         self.metadata_internal()
     }
 
-    fn metadata_internal(&self) -> Result<fs::Metadata> {
+    fn metadata_internal(&self) -> Result<fs::Metadata, E> {
         use crate::source::SourceDirEntryExt;
 
         if self.follow_link {
@@ -168,15 +168,15 @@ impl<E: source::SourceExt> DirEntry<E> {
     pub(crate) fn from_entry(
         depth: usize,
         ent: &fs::DirEntry,
-    ) -> Result<DirEntry<E>> {
+    ) -> Result<DirEntry<E>, E> {
         use crate::source::SourceDirEntryExt;
 
         let path = ent.path();
         let ty = ent
             .file_type()
-            .map_err(|err| Error::from_path(depth, path.clone(), err))?;
+            .map_err(|err| Error::<E>::from_path(depth, path.clone(), err))?;
         let ext = E::DirEntryExt::from_entry(ent)
-            .map_err(|err| Error::from_path(depth, path.clone(), err))?;
+            .map_err(|err| Error::<E>::from_path(depth, path.clone(), err))?;
         Ok(DirEntry {
             path: path,
             ty: ty,
@@ -190,7 +190,7 @@ impl<E: source::SourceExt> DirEntry<E> {
         depth: usize,
         pb: E::PathBuf,
         follow: bool,
-    ) -> Result<DirEntry<E>> {
+    ) -> Result<DirEntry<E>, E> {
         use crate::source::SourceDirEntryExt;
 
         let md = if follow {
