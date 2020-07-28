@@ -1,9 +1,9 @@
 use std::fmt;
 
 use crate::error::Error;
-use crate::Result;
 use crate::source;
 use crate::source::{SourceFsDirEntry, SourceFsFileType, SourceFsMetadata};
+use crate::Result;
 
 /// A directory entry.
 ///
@@ -118,7 +118,6 @@ impl<E: source::SourceExt> DirEntry<E> {
     }
 
     fn metadata_internal(&self) -> Result<E::FsMetadata, E> {
-
         if self.follow_link {
             E::metadata(&self.path)
         } else {
@@ -126,7 +125,6 @@ impl<E: source::SourceExt> DirEntry<E> {
         }
         .map_err(|err| Error::from_entry(self, err))
     }
-
 
     /// Return the file type for the file that this entry points to.
     ///
@@ -180,7 +178,7 @@ impl<E: source::SourceExt> DirEntry<E> {
             ext,
         })
     }
- 
+
     pub(crate) fn from_path(
         depth: usize,
         pb: E::PathBuf,

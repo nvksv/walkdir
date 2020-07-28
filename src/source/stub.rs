@@ -1,8 +1,8 @@
-use crate::source::{SourceExt};
+use crate::source::SourceExt;
 
 use std::fmt::Debug;
-use std::io;
 use std::fs;
+use std::io;
 
 use crate::dent::DirEntry;
 
@@ -33,7 +33,9 @@ impl SourceExt for Nil {
     }
 
     #[allow(unused_variables)]
-    fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle> {
+    fn get_handle<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::SameFileHandle> {
         Ok(())
     }
 
@@ -43,31 +45,46 @@ impl SourceExt for Nil {
     }
 
     #[allow(unused_variables)]
-    fn is_same(ancestor_path: &Self::PathBuf, ancestor_ext: &Self::AncestorExt, child: &Self::SameFileHandle) -> io::Result<bool> {
+    fn is_same(
+        ancestor_path: &Self::PathBuf,
+        ancestor_ext: &Self::AncestorExt,
+        child: &Self::SameFileHandle,
+    ) -> io::Result<bool> {
         Ok(false)
     }
 
-    fn metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+    fn metadata<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::FsMetadata> {
         fs::metadata(path.as_ref())
     }
 
     /// Get metadata for symlink
-    fn symlink_metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+    fn symlink_metadata<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::FsMetadata> {
         fs::symlink_metadata(path.as_ref())
     }
 
     /// Get metadata for symlink
-    fn symlink_metadata_internal(dent: &DirEntry<Self>) -> io::Result<Self::FsMetadata> {
+    fn symlink_metadata_internal(
+        dent: &DirEntry<Self>,
+    ) -> io::Result<Self::FsMetadata> {
         Self::symlink_metadata(dent.path())
     }
 
     #[allow(unused_variables)]
-    fn read_dir<P: AsRef<Self::Path>>(dent: &DirEntry<Self>, path: P) -> io::Result<Self::FsReadDir> {
+    fn read_dir<P: AsRef<Self::Path>>(
+        dent: &DirEntry<Self>,
+        path: P,
+    ) -> io::Result<Self::FsReadDir> {
         fs::read_dir(path.as_ref())
     }
 
     #[allow(unused_variables)]
-    fn dent_from_fsentry(ent: &Self::FsDirEntry) -> io::Result<Self::DirEntryExt> {
+    fn dent_from_fsentry(
+        ent: &Self::FsDirEntry,
+    ) -> io::Result<Self::DirEntryExt> {
         Ok(Self::DirEntryExt {})
     }
 
@@ -93,5 +110,3 @@ impl SourceExt for Nil {
         path.file_name().unwrap_or_else(|| path.as_os_str())
     }
 }
-
-

@@ -1,4 +1,7 @@
-use crate::source::{SourceExt, SourcePath, SourcePathBuf, SourceFsDirEntry, SourceFsReadDir, SourceFsFileType, SourceFsMetadata};
+use crate::source::{
+    SourceExt, SourceFsDirEntry, SourceFsFileType, SourceFsMetadata,
+    SourceFsReadDir, SourcePath, SourcePathBuf,
+};
 
 impl SourcePath<std::path::PathBuf> for std::path::Path {
     #[inline(always)]
@@ -13,8 +16,6 @@ impl SourcePath<std::string::String> for str {
         self.to_string()
     }
 }
-
-
 
 impl<'s> SourcePathBuf<'s> for std::path::PathBuf {
     type Display = std::path::Display<'s>;
@@ -36,18 +37,23 @@ impl<'s> std::fmt::Display for StringDisplay<'s> {
     }
 }
 
-
 impl<'s> SourcePathBuf<'s> for std::string::String {
     type Display = StringDisplay<'s>;
 
     #[inline(always)]
     fn display(&'s self) -> Self::Display {
-        StringDisplay{ inner: self }
+        StringDisplay { inner: self }
     }
 }
 
-
-impl<E> SourceFsDirEntry<E> for std::fs::DirEntry where E: SourceExt<Path = std::path::Path, PathBuf = std::path::PathBuf, FsFileType = std::fs::FileType>{
+impl<E> SourceFsDirEntry<E> for std::fs::DirEntry
+where
+    E: SourceExt<
+        Path = std::path::Path,
+        PathBuf = std::path::PathBuf,
+        FsFileType = std::fs::FileType,
+    >,
+{
     #[inline(always)]
     fn path(&self) -> E::PathBuf {
         self.path()
@@ -59,7 +65,14 @@ impl<E> SourceFsDirEntry<E> for std::fs::DirEntry where E: SourceExt<Path = std:
     }
 }
 
-impl<E> SourceFsReadDir<E> for std::fs::ReadDir where E: SourceExt<Path = std::path::Path, PathBuf = std::path::PathBuf, FsDirEntry = std::fs::DirEntry, FsFileType = std::fs::FileType>{
+impl<E> SourceFsReadDir<E> for std::fs::ReadDir where
+    E: SourceExt<
+        Path = std::path::Path,
+        PathBuf = std::path::PathBuf,
+        FsDirEntry = std::fs::DirEntry,
+        FsFileType = std::fs::FileType,
+    >
+{
 }
 
 impl SourceFsFileType for std::fs::FileType {
@@ -79,10 +92,12 @@ impl SourceFsFileType for std::fs::FileType {
     }
 }
 
-impl<E> SourceFsMetadata<E> for std::fs::Metadata where E: SourceExt<FsFileType = std::fs::FileType> {
+impl<E> SourceFsMetadata<E> for std::fs::Metadata
+where
+    E: SourceExt<FsFileType = std::fs::FileType>,
+{
     #[inline(always)]
     fn file_type(&self) -> E::FsFileType {
         std::fs::Metadata::file_type(self)
     }
-
 }

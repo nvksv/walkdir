@@ -1,10 +1,10 @@
 /*!
 Source-specific extensions for directory walking
 */
-mod util;
 mod stub;
 #[cfg(unix)]
 mod unix;
+mod util;
 #[cfg(windows)]
 mod windows;
 
@@ -24,18 +24,18 @@ pub type DefaultSourceExt = WalkDirUnixExt;
 /// Default source-specific type.
 pub type DefaultSourceExt = WalkDirWindowsExt;
 
-use std::fmt;
-use std::ops::Deref;
-use std::convert::AsRef;
-use std::marker::Send;
-use std::io;
 use std::cmp::Ord;
+use std::convert::AsRef;
+use std::fmt;
+use std::io;
+use std::marker::Send;
+use std::ops::Deref;
 
 use crate::dent::DirEntry;
 
 /// Functions for SourceExt::Path
 pub trait SourcePath<PathBuf> {
-    /// Copy to owned 
+    /// Copy to owned
     fn to_path_buf(&self) -> PathBuf;
 }
 
@@ -73,7 +73,10 @@ pub trait SourceFsMetadata<E: SourceExt> {
 }
 
 /// Functions for FsReadDir
-pub trait SourceFsReadDir<E: SourceExt>: fmt::Debug + Iterator<Item=io::Result<E::FsDirEntry>> {}
+pub trait SourceFsReadDir<E: SourceExt>:
+    fmt::Debug + Iterator<Item = io::Result<E::FsDirEntry>>
+{
+}
 
 /// Trait for source-specific extensions
 pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
@@ -100,7 +103,13 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
     /// std::path::Path
     type Path: ?Sized + Ord + SourcePath<Self::PathBuf> + AsRef<Self::Path>;
     /// std::path::PathBuf
-    type PathBuf: fmt::Debug + Clone + Send + Sync + Deref<Target = Self::Path> + AsRef<Self::Path> + for<'s> SourcePathBuf<'s>;
+    type PathBuf: fmt::Debug
+        + Clone
+        + Send
+        + Sync
+        + Deref<Target = Self::Path>
+        + AsRef<Self::Path>
+        + for<'s> SourcePathBuf<'s>;
 
     /// Handle to determine the sameness of two dirs
     type SameFileHandle: Eq;
@@ -108,29 +117,43 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
     /// Make new
     fn intoiter_new(self) -> Self::IntoIterExt;
 
-    /// Return the unique handle 
-    fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle>;
+    /// Return the unique handle
+    fn get_handle<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::SameFileHandle>;
 
     /// Make new
     fn ancestor_new(dent: &DirEntry<Self>) -> io::Result<Self::AncestorExt>;
-    
+
     /// Check if this entry and child is same
     #[allow(unused_variables)]
-    fn is_same(ancestor_path: &Self::PathBuf, ancestor_ext: &Self::AncestorExt, child: &Self::SameFileHandle) -> io::Result<bool> {
+    fn is_same(
+        ancestor_path: &Self::PathBuf,
+        ancestor_ext: &Self::AncestorExt,
+        child: &Self::SameFileHandle,
+    ) -> io::Result<bool> {
         Ok(child == &Self::get_handle(ancestor_path)?)
     }
 
     /// Get metadata for symlink
-    fn metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata>;
+    fn metadata<P: AsRef<Self::Path>>(path: P)
+        -> io::Result<Self::FsMetadata>;
 
     /// Get metadata for symlink
-    fn symlink_metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata>;
+    fn symlink_metadata<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::FsMetadata>;
 
     /// Get metadata for symlink
-    fn symlink_metadata_internal(dent: &DirEntry<Self>) -> io::Result<Self::FsMetadata>;
+    fn symlink_metadata_internal(
+        dent: &DirEntry<Self>,
+    ) -> io::Result<Self::FsMetadata>;
 
     /// Get metadata for symlink
-    fn read_dir<P: AsRef<Self::Path>>(dent: &DirEntry<Self>, path: P) -> io::Result<Self::FsReadDir>;
+    fn read_dir<P: AsRef<Self::Path>>(
+        dent: &DirEntry<Self>,
+        path: P,
+    ) -> io::Result<Self::FsReadDir>;
 
     /// Check if this entry is a directory
     fn is_dir(dent: &DirEntry<Self>) -> bool {
@@ -138,11 +161,13 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
     }
 
     /// Create extension from DirEntry
-    fn dent_from_fsentry(ent: &Self::FsDirEntry) -> io::Result<Self::DirEntryExt>;
+    fn dent_from_fsentry(
+        ent: &Self::FsDirEntry,
+    ) -> io::Result<Self::DirEntryExt>;
     /// Create extension from metadata
     fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt;
 
-    /// Make new 
+    /// Make new
     fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self;
 
     /// device_num

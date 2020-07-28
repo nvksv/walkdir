@@ -1,9 +1,9 @@
-use crate::source::{SourceExt, Nil};
+use crate::source::{Nil, SourceExt};
 
-use std::path;
 use std::fmt::Debug;
-use std::io;
 use std::fs;
+use std::io;
+use std::path;
 
 use same_file;
 
@@ -17,8 +17,7 @@ pub struct DirEntryUnixExt {
 
 /// Unix-specific extensions
 #[derive(Debug, Clone)]
-pub struct WalkDirUnixExt {
-}
+pub struct WalkDirUnixExt {}
 
 impl SourceExt for WalkDirUnixExt {
     type OptionsExt = Nil;
@@ -42,7 +41,9 @@ impl SourceExt for WalkDirUnixExt {
         Self::IntoIterExt {}
     }
 
-    fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle> {
+    fn get_handle<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::SameFileHandle> {
         same_file::Handle::from_path(path)
     }
 
@@ -52,30 +53,45 @@ impl SourceExt for WalkDirUnixExt {
     }
 
     #[allow(unused_variables)]
-    fn is_same(ancestor_path: &Self::PathBuf, ancestor_ext: &Self::AncestorExt, child: &Self::SameFileHandle) -> io::Result<bool> {
+    fn is_same(
+        ancestor_path: &Self::PathBuf,
+        ancestor_ext: &Self::AncestorExt,
+        child: &Self::SameFileHandle,
+    ) -> io::Result<bool> {
         Ok(child == &Self::get_handle(ancestor_path)?)
     }
 
-    fn metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+    fn metadata<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::FsMetadata> {
         fs::metadata(path)
     }
 
     /// Get metadata for symlink
-    fn symlink_metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+    fn symlink_metadata<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::FsMetadata> {
         fs::symlink_metadata(path)
     }
 
     /// Get metadata for symlink
-    fn symlink_metadata_internal(dent: &DirEntry<Self>) -> io::Result<Self::FsMetadata> {
+    fn symlink_metadata_internal(
+        dent: &DirEntry<Self>,
+    ) -> io::Result<Self::FsMetadata> {
         Self::symlink_metadata(&dent.path())
     }
 
     #[allow(unused_variables)]
-    fn read_dir<P: AsRef<Self::Path>>(dent: &DirEntry<Self>, path: P) -> io::Result<Self::FsReadDir> {
+    fn read_dir<P: AsRef<Self::Path>>(
+        dent: &DirEntry<Self>,
+        path: P,
+    ) -> io::Result<Self::FsReadDir> {
         fs::read_dir(path.as_ref())
     }
 
-    fn dent_from_fsentry(ent: &Self::FsDirEntry) -> io::Result<Self::DirEntryExt> {
+    fn dent_from_fsentry(
+        ent: &Self::FsDirEntry,
+    ) -> io::Result<Self::DirEntryExt> {
         use std::os::unix::fs::DirEntryExt;
         Ok(Self::DirEntryExt { ino: ent.ino() })
     }
@@ -85,7 +101,6 @@ impl SourceExt for WalkDirUnixExt {
         Self::DirEntryExt { ino: md.ino() }
     }
 
-
     #[allow(unused_variables)]
     fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self {
         Self {}
@@ -93,12 +108,11 @@ impl SourceExt for WalkDirUnixExt {
 
     fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64> {
         use std::os::unix::fs::MetadataExt;
-    
+
         path.as_ref().metadata().map(|md| md.dev())
     }
-    
+
     fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName {
         path.file_name().unwrap_or_else(|| path.as_os_str())
     }
-} 
-
+}

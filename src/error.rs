@@ -2,9 +2,9 @@ use std::error;
 use std::fmt;
 use std::io;
 
-use crate::DirEntry;
 use crate::source;
 use crate::source::{SourcePath, SourcePathBuf};
+use crate::DirEntry;
 
 /// An error produced by recursively walking a directory.
 ///

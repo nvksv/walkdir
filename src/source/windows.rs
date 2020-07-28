@@ -1,9 +1,9 @@
-use crate::source::{SourceExt, Nil};
+use crate::source::{Nil, SourceExt};
 
-use std::path;
 use std::fmt::Debug;
-use std::io;
 use std::fs;
+use std::io;
+use std::path;
 
 use same_file;
 
@@ -31,8 +31,7 @@ pub struct DirEntryWindowsExt {
 
 /// Windows-specific extensions
 #[derive(Debug, Clone)]
-pub struct WalkDirWindowsExt {
-}
+pub struct WalkDirWindowsExt {}
 
 impl SourceExt for WalkDirWindowsExt {
     type OptionsExt = Nil;
@@ -51,13 +50,14 @@ impl SourceExt for WalkDirWindowsExt {
 
     type SameFileHandle = same_file::Handle;
 
-
     #[allow(unused_variables)]
     fn intoiter_new(self) -> Self::IntoIterExt {
         Self::IntoIterExt {}
     }
 
-    fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle> {
+    fn get_handle<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::SameFileHandle> {
         same_file::Handle::from_path(path)
     }
 
@@ -67,26 +67,39 @@ impl SourceExt for WalkDirWindowsExt {
     }
 
     #[allow(unused_variables)]
-    fn is_same(ancestor_path: &Self::PathBuf, ancestor_ext: &Self::AncestorExt, child: &Self::SameFileHandle) -> io::Result<bool> {
+    fn is_same(
+        ancestor_path: &Self::PathBuf,
+        ancestor_ext: &Self::AncestorExt,
+        child: &Self::SameFileHandle,
+    ) -> io::Result<bool> {
         Ok(child == &ancestor_ext.handle)
     }
 
-    fn metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+    fn metadata<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::FsMetadata> {
         fs::metadata(path)
     }
 
     /// Get metadata for symlink
-    fn symlink_metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+    fn symlink_metadata<P: AsRef<Self::Path>>(
+        path: P,
+    ) -> io::Result<Self::FsMetadata> {
         fs::symlink_metadata(path)
     }
 
     /// Get metadata for symlink
-    fn symlink_metadata_internal(dent: &DirEntry<Self>) -> io::Result<Self::FsMetadata> {
+    fn symlink_metadata_internal(
+        dent: &DirEntry<Self>,
+    ) -> io::Result<Self::FsMetadata> {
         Ok(dent.ext.metadata.clone())
     }
 
     #[allow(unused_variables)]
-    fn read_dir<P: AsRef<Self::Path>>(dent: &DirEntry<Self>, path: P) -> io::Result<Self::FsReadDir> {
+    fn read_dir<P: AsRef<Self::Path>>(
+        dent: &DirEntry<Self>,
+        path: P,
+    ) -> io::Result<Self::FsReadDir> {
         fs::read_dir(path.as_ref())
     }
 
@@ -100,14 +113,15 @@ impl SourceExt for WalkDirWindowsExt {
         dent.ext.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
     }
 
-    fn dent_from_fsentry(ent: &Self::FsDirEntry) -> io::Result<Self::DirEntryExt> {
+    fn dent_from_fsentry(
+        ent: &Self::FsDirEntry,
+    ) -> io::Result<Self::DirEntryExt> {
         Ok(Self::DirEntryExt { metadata: ent.metadata()? })
     }
 
     fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt {
         Self::DirEntryExt { metadata: md }
     }
-
 
     #[allow(unused_variables)]
     fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self {
@@ -116,14 +130,12 @@ impl SourceExt for WalkDirWindowsExt {
 
     fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64> {
         use winapi_util::{file, Handle};
-    
+
         let h = Handle::from_path_any(path)?;
         file::information(h).map(|info| info.volume_serial_number())
     }
-    
+
     fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName {
         path.file_name().unwrap_or_else(|| path.as_os_str())
     }
-} 
-
-
+}

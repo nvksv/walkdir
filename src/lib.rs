@@ -119,11 +119,11 @@ pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 pub use crate::error::Error;
-use crate::source::{SourcePath, SourceFsFileType, SourceFsMetadata};
+use crate::source::{SourceFsFileType, SourceFsMetadata, SourcePath};
 
-pub mod source;
 mod dent;
 mod error;
+pub mod source;
 #[cfg(test)]
 mod tests;
 
@@ -150,7 +150,8 @@ macro_rules! itry {
 ///
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
 /// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
-pub type Result<T, E = source::DefaultSourceExt> = ::std::result::Result<T, Error<E>>;
+pub type Result<T, E = source::DefaultSourceExt> =
+    ::std::result::Result<T, Error<E>>;
 
 /// A builder to create an iterator for recursively walking a directory.
 ///
@@ -397,7 +398,10 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
     where
-        F: FnMut(&DirEntry<E>, &DirEntry<E>) -> Ordering + Send + Sync + 'static,
+        F: FnMut(&DirEntry<E>, &DirEntry<E>) -> Ordering
+            + Send
+            + Sync
+            + 'static,
     {
         self.opts.sorter = Some(Box::new(cmp));
         self
@@ -567,7 +571,10 @@ struct Ancestor<E: source::SourceExt> {
 impl<E: source::SourceExt> Ancestor<E> {
     /// Create a new ancestor from the given directory path.
     fn new(dent: &DirEntry<E>) -> io::Result<Self> {
-        Ok(Self { path: dent.path().to_path_buf(), ext: E::ancestor_new(dent)? })
+        Ok(Self {
+            path: dent.path().to_path_buf(),
+            ext: E::ancestor_new(dent)?,
+        })
     }
 
     /// Returns true if and only if the given open file handle corresponds to
@@ -761,7 +768,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
     where
-        P: FnMut(&DirEntry<E>) -> bool
+        P: FnMut(&DirEntry<E>) -> bool,
     {
         FilterEntry { it: self, predicate: predicate }
     }
@@ -885,8 +892,11 @@ impl<E: source::SourceExt> IntoIter<E> {
     }
 
     fn follow(&self, mut dent: DirEntry<E>) -> Result<DirEntry<E>, E> {
-        dent =
-            DirEntry::<E>::from_path(self.depth, dent.path().to_path_buf(), true)?;
+        dent = DirEntry::<E>::from_path(
+            self.depth,
+            dent.path().to_path_buf(),
+            true,
+        )?;
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
