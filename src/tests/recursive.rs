@@ -843,6 +843,41 @@ fn contents_first() {
 }
 
 #[test]
+fn contents_first_ordered() {
+    let dir = Dir::tmp();
+    dir.mkdirp("foo");
+    dir.mkdirp("foo/bar");
+    dir.mkdirp("baz");
+    dir.touch_all(&["a", "b", "c"]);
+    dir.touch_all(&["foo/a", "foo/b", "foo/c"]);
+    dir.touch_all(&["foo/bar/a", "foo/bar/b", "foo/bar/b"]);
+    dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
+
+    let wd = <WalkDir>::new(dir.path()).contents_first(true).sort_by(|a, b| a.file_name().cmp(b.file_name()));
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![
+        dir.path().to_path_buf(),
+        dir.join("a"),
+        dir.join("b"),
+        dir.join("c"),
+        dir.join("bar"),
+        dir.join("bar").join("a"),
+        dir.join("bar").join("b"),
+        dir.join("bar").join("c"),
+        dir.join("bar").join("baz").join("a"),
+        dir.join("bar").join("baz").join("b"),
+        dir.join("bar").join("baz").join("c"),
+        dir.join("foo"),
+        dir.join("foo").join("a"),
+        dir.join("foo").join("b"),
+        dir.join("foo").join("c"),
+    ];
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
 fn skip_current_dir() {
     let dir = Dir::tmp();
     dir.mkdirp("foo/bar/baz");
