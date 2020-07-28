@@ -111,18 +111,15 @@ doc_comment::doctest!("../README.md");
 
 use std::cmp::{min, Ordering};
 use std::fmt;
-use std::fs::ReadDir;
 use std::io;
 use std::result;
 use std::vec;
-
-use same_file::Handle;
 
 pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 pub use crate::error::Error;
-use crate::source::{SourcePath, SourceDirEntryExt};
+use crate::source::{SourcePath, SourceFsFileType, SourceFsMetadata};
 
 pub mod source;
 mod dent;
@@ -302,7 +299,7 @@ impl<E: source::SourceExt> WalkDir<E> {
                 ext: E::OptionsExt::default(),
             },
             root: root.as_ref().to_path_buf(),
-            ext: E::new(root),
+            ext: E::walkdir_new(root),
         }
     }
 
@@ -487,8 +484,6 @@ impl<E: source::SourceExt> IntoIterator for WalkDir<E> {
     type IntoIter = IntoIter<E>;
 
     fn into_iter(self) -> IntoIter<E> {
-        use crate::source::SourceIntoIterExt;
-
         IntoIter {
             opts: self.opts,
             start: Some(self.root),
@@ -498,7 +493,7 @@ impl<E: source::SourceExt> IntoIterator for WalkDir<E> {
             depth: 0,
             deferred_dirs: vec![],
             root_device: None,
-            ext: E::IntoIterExt::new(self.ext),
+            ext: E::intoiter_new(self.ext),
         }
     }
 }
@@ -572,15 +567,13 @@ pub struct Ancestor<E: source::SourceExt> {
 impl<E: source::SourceExt> Ancestor<E> {
     /// Create a new ancestor from the given directory path.
     fn new(dent: &DirEntry<E>) -> io::Result<Self> {
-        use crate::source::SourceAncestorExt;
-        Ok(Self { path: dent.path().to_path_buf(), ext: E::AncestorExt::new(dent)? })
+        Ok(Self { path: dent.path().to_path_buf(), ext: E::ancestor_new(dent)? })
     }
 
     /// Returns true if and only if the given open file handle corresponds to
     /// the same directory as this ancestor.
-    fn is_same(&self, child: &Handle) -> io::Result<bool> {
-        use crate::source::SourceAncestorExt;
-        self.ext.is_same(self, child)
+    fn is_same(&self, child: &E::SameFileHandle) -> io::Result<bool> {
+        E::is_same(&self, child)
     }
 }
 
@@ -605,7 +598,7 @@ enum DirList<E: source::SourceExt> {
     ///
     /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
     /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
-    Opened { depth: usize, it: result::Result<ReadDir, Option<Error<E>>> },
+    Opened { depth: usize, it: result::Result<E::FsReadDir, Option<Error<E>>> },
     /// A closed handle.
     ///
     /// All remaining directory entries are read into memory.
@@ -797,7 +790,7 @@ impl<E: source::SourceExt> IntoIter<E> {
             // the follow_links setting. When it's disabled, it should report
             // itself as a symlink. When it's enabled, it should always report
             // itself as the target.
-            let md = itry!(dent.ext.metadata(dent.path()).map_err(|err| {
+            let md = itry!(E::metadata(dent.path()).map_err(|err| {
                 Error::from_path(dent.depth(), dent.path().to_path_buf(), err)
             }));
             if md.file_type().is_dir() {
@@ -839,7 +832,7 @@ impl<E: source::SourceExt> IntoIter<E> {
             self.stack_list[self.oldest_opened].close();
         }
         // Open a handle to reading the directory's entries.
-        let rd = dent.ext.read_dir(dent.path()).map_err(|err| {
+        let rd = E::read_dir(dent, dent.path()).map_err(|err| {
             Some(Error::from_path(self.depth, dent.path().to_path_buf(), err))
         });
         let mut list = DirList::<E>::Opened { depth: self.depth, it: rd };
@@ -904,7 +897,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     }
 
     fn check_loop<P: AsRef<E::Path>>(&self, child: P) -> Result<(), E> {
-        let hchild = Handle::from_path(&child)
+        let hchild = E::get_handle(&child)
             .map_err(|err| Error::from_io(self.depth, err))?;
         for ancestor in self.stack_path.iter().rev() {
             let is_same = ancestor

@@ -1,10 +1,9 @@
-use std::ffi::OsStr;
 use std::fmt;
-use std::fs::{self, FileType};
 
 use crate::error::Error;
 use crate::Result;
 use crate::source;
+use crate::source::{SourceFsDirEntry, SourceFsFileType, SourceFsMetadata};
 
 /// A directory entry.
 ///
@@ -39,7 +38,7 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
     path: E::PathBuf,
     /// The file type. Necessary for recursive iteration, so store it.
-    ty: FileType,
+    ty: E::FsFileType,
     /// Is set when this entry was created from a symbolic link and the user
     /// expects the iterator to follow symbolic links.
     follow_link: bool,
@@ -114,17 +113,16 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    pub fn metadata(&self) -> Result<fs::Metadata, E> {
+    pub fn metadata(&self) -> Result<E::FsMetadata, E> {
         self.metadata_internal()
     }
 
-    fn metadata_internal(&self) -> Result<fs::Metadata, E> {
-        use crate::source::SourceDirEntryExt;
+    fn metadata_internal(&self) -> Result<E::FsMetadata, E> {
 
         if self.follow_link {
-            fs::metadata(&self.path)
+            E::metadata(&self.path)
         } else {
-            self.ext.symlink_metadata(&self)
+            E::symlink_metadata_internal(self)
         }
         .map_err(|err| Error::from_entry(self, err))
     }
@@ -138,7 +136,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// This never makes any system calls.
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    pub fn file_type(&self) -> fs::FileType {
+    pub fn file_type(&self) -> E::FsFileType {
         self.ty
     }
 
@@ -146,8 +144,8 @@ impl<E: source::SourceExt> DirEntry<E> {
     ///
     /// If this entry has no file name (e.g., `/`), then the full path is
     /// returned.
-    pub fn file_name(&self) -> &OsStr {
-        self.path.file_name().unwrap_or_else(|| self.path.as_os_str())
+    pub fn file_name(&self) -> &E::FsFileName {
+        E::get_file_name(&self.path)
     }
 
     /// Returns the depth at which this entry was created relative to the root.
@@ -161,21 +159,18 @@ impl<E: source::SourceExt> DirEntry<E> {
 
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
-        use crate::source::SourceDirEntryExt;
-        self.ext.is_dir(&self)
+        E::is_dir(&self)
     }
 
     pub(crate) fn from_entry(
         depth: usize,
-        ent: &fs::DirEntry,
+        ent: &E::FsDirEntry,
     ) -> Result<DirEntry<E>, E> {
-        use crate::source::SourceDirEntryExt;
-
         let path = ent.path();
         let ty = ent
             .file_type()
             .map_err(|err| Error::<E>::from_path(depth, path.clone(), err))?;
-        let ext = E::DirEntryExt::from_entry(ent)
+        let ext = E::dent_from_fsentry(ent)
             .map_err(|err| Error::<E>::from_path(depth, path.clone(), err))?;
         Ok(DirEntry {
             path: path,
@@ -191,13 +186,11 @@ impl<E: source::SourceExt> DirEntry<E> {
         pb: E::PathBuf,
         follow: bool,
     ) -> Result<DirEntry<E>, E> {
-        use crate::source::SourceDirEntryExt;
-
         let md = if follow {
-            fs::metadata(&pb)
+            E::metadata(&pb)
                 .map_err(|err| Error::from_path(depth, pb.clone(), err))?
         } else {
-            fs::symlink_metadata(&pb)
+            E::symlink_metadata(&pb)
                 .map_err(|err| Error::from_path(depth, pb.clone(), err))?
         };
         Ok(DirEntry {
@@ -205,7 +198,7 @@ impl<E: source::SourceExt> DirEntry<E> {
             ty: md.file_type(),
             follow_link: follow,
             depth: depth,
-            ext: E::DirEntryExt::from_metadata(md),
+            ext: E::dent_from_metadata(md),
         })
     }
 }

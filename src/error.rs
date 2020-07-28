@@ -4,7 +4,7 @@ use std::io;
 
 use crate::DirEntry;
 use crate::source;
-use crate::source::SourcePath;
+use crate::source::{SourcePath, SourcePathBuf};
 
 /// An error produced by recursively walking a directory.
 ///
@@ -242,7 +242,7 @@ impl<E: source::SourceExt> fmt::Display for Error<E> {
     }
 }
 
-impl<E: source::SourceExt> From<Error<E>> for io::Error {
+impl<E: 'static + source::SourceExt> From<Error<E>> for io::Error {
     /// Convert the [`Error`] to an [`io::Error`], preserving the original
     /// [`Error`] as the ["inner error"]. Note that this also makes the display
     /// of the error include the context.

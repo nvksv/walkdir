@@ -1,11 +1,8 @@
-use crate::source::{SourceExt, SourceIntoIterExt, SourceAncestorExt, SourceDirEntryExt};
+use crate::source::{SourceExt};
 
 use std::fmt::Debug;
 use std::io;
 use std::fs;
-//use std::marker::Sized;
-
-use same_file::Handle;
 
 use crate::dent::DirEntry;
 use crate::Ancestor;
@@ -14,64 +11,78 @@ use crate::Ancestor;
 #[derive(Debug, Clone, Default)]
 pub struct Nil {}
 
-impl<E: SourceExt> SourceIntoIterExt<E> for Nil {
-    #[allow(unused_variables)]
-    fn new(ext: E) -> Self {
-        Self {}
-    }
-}
-
-impl<E: SourceExt> SourceAncestorExt<E> for Nil {
-    #[allow(unused_variables)]
-    fn new(dent: &DirEntry<E>) -> io::Result<Self> {
-        Ok(Self {})
-    }
-
-    #[allow(unused_variables)]
-    fn is_same(&self, ancestor: &Ancestor<E>, child: &Handle) -> io::Result<bool> {
-        Ok(false)
-    }
-}
-
-impl<E: SourceExt> SourceDirEntryExt<E> for Nil {
-    fn metadata<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::Metadata> {
-        fs::symlink_metadata(path.as_ref())
-    }
-
-    fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata> {
-        fs::symlink_metadata(entry.path())
-    }
-
-    fn read_dir<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::ReadDir> {
-        fs::read_dir(path.as_ref())
-    }
-
-
-    #[allow(unused_variables)]
-    fn from_entry(ent: &fs::DirEntry) -> io::Result<Self> {
-        Ok(Self {})
-    }
-
-    #[allow(unused_variables)]
-    fn from_metadata(md: fs::Metadata) -> Self {
-        Self {}
-    }
-}
-
 impl SourceExt for Nil {
     type OptionsExt = Nil;
     type IntoIterExt = Nil;
     type AncestorExt = Nil;
     type DirEntryExt = Nil;
 
-    type PathBuf = std::path::PathBuf;
+    type FsFileName = std::ffi::OsStr;
+    type FsDirEntry = std::fs::DirEntry;
+    type FsReadDir = std::fs::ReadDir;
+    type FsFileType = std::fs::FileType;
+    type FsMetadata = std::fs::Metadata;
+
     type Path = std::path::Path;
+    type PathBuf = std::path::PathBuf;
+
+    type SameFileHandle = ();
 
     #[allow(unused_variables)]
-    fn new<P: AsRef<Self::Path>>(root: P) -> Self {
+    fn intoiter_new(self) -> Self::IntoIterExt {
         Self {}
     }
 
+    #[allow(unused_variables)]
+    fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle> {
+        Ok(())
+    }
+
+    #[allow(unused_variables)]
+    fn ancestor_new(dent: &DirEntry<Self>) -> io::Result<Self::AncestorExt> {
+        Ok(Self {})
+    }
+
+    #[allow(unused_variables)]
+    fn is_same(ancestor: &Ancestor<Self>, child: &Self::SameFileHandle) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    fn metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+        fs::metadata(path.as_ref())
+    }
+
+    /// Get metadata for symlink
+    fn symlink_metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+        fs::symlink_metadata(path.as_ref())
+    }
+
+    /// Get metadata for symlink
+    fn symlink_metadata_internal(dent: &DirEntry<Self>) -> io::Result<Self::FsMetadata> {
+        Self::symlink_metadata(dent.path())
+    }
+
+    #[allow(unused_variables)]
+    fn read_dir<P: AsRef<Self::Path>>(dent: &DirEntry<Self>, path: P) -> io::Result<Self::FsReadDir> {
+        fs::read_dir(path.as_ref())
+    }
+
+    #[allow(unused_variables)]
+    fn dent_from_fsentry(ent: &Self::FsDirEntry) -> io::Result<Self::DirEntryExt> {
+        Ok(Self::DirEntryExt {})
+    }
+
+    #[allow(unused_variables)]
+    fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt {
+        Self::DirEntryExt {}
+    }
+
+    #[allow(unused_variables)]
+    fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self {
+        Self {}
+    }
+
+    #[allow(unused_variables)]
     fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64> {
         Err(io::Error::new(
             io::ErrorKind::Other,
@@ -79,6 +90,9 @@ impl SourceExt for Nil {
         ))
     }
 
+    fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName {
+        path.file_name().unwrap_or_else(|| path.as_os_str())
+    }
 }
 
 

@@ -1,4 +1,4 @@
-use crate::source::{SourceExt, SourceAncestorExt, SourceDirEntryExt, Nil};
+use crate::source::{SourceExt, Nil};
 
 use std::path;
 use std::fmt::Debug;
@@ -6,7 +6,7 @@ use std::io;
 use std::fs;
 //use std::marker::Sized;
 
-use same_file::Handle;
+use same_file;
 
 use crate::dent::DirEntry;
 use crate::Ancestor;
@@ -17,21 +17,7 @@ pub struct AncestorWindowsExt {
     /// opening a file handle appears to be quite expensive, so we choose to
     /// cache it. This comes at the cost of not respecting the file descriptor
     /// limit set by the user.
-    handle: Handle,
-}
-
-impl<E: SourceExt> SourceAncestorExt<E> for AncestorWindowsExt {
-
-    fn new(dent: &DirEntry<E>) -> io::Result<Self> {
-        let handle = Handle::from_path(dent.path())?;
-        Ok(Self { handle })
-    }
-
-    #[allow(unused_variables)]
-    fn is_same(&self, ancestor: &Ancestor<E>, child: &Handle) -> io::Result<bool> {
-        Ok(child == &self.handle)
-    }
-
+    handle: same_file::Handle,
 }
 
 #[derive(Debug, Clone)]
@@ -45,40 +31,6 @@ pub struct DirEntryWindowsExt {
     metadata: fs::Metadata,
 }
 
-impl<E: SourceExt> SourceDirEntryExt<E> for DirEntryWindowsExt {
-
-    fn metadata<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::Metadata> {
-        fs::symlink_metadata(path)
-    }
-
-    #[allow(unused_variables)]
-    fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata> {
-        Ok(self.metadata.clone())
-    }
-
-    fn read_dir<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::ReadDir> {
-        fs::read_dir(path.as_ref())
-    }
-
-    /// This works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    #[allow(unused_variables)]
-    fn is_dir(&self, entry: &DirEntry<E>) -> bool {
-        use std::os::windows::fs::MetadataExt;
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
-
-        self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
-    }
-
-    fn from_entry(ent: &fs::DirEntry) -> io::Result<Self> {
-        Ok(Self { metadata: ent.metadata()? })
-    }
-
-    fn from_metadata(md: fs::Metadata) -> Self {
-        Self { metadata: md }
-    }
-}
-
 /// Windows-specific extensions
 #[derive(Debug, Clone)]
 pub struct WalkDirWindowsExt {
@@ -90,11 +42,77 @@ impl SourceExt for WalkDirWindowsExt {
     type AncestorExt = AncestorWindowsExt;
     type DirEntryExt = DirEntryWindowsExt;
 
-    type PathBuf = path::PathBuf;
+    type FsFileName = std::ffi::OsStr;
+    type FsDirEntry = std::fs::DirEntry;
+    type FsReadDir = std::fs::ReadDir;
+    type FsFileType = std::fs::FileType;
+    type FsMetadata = std::fs::Metadata;
+
     type Path = path::Path;
+    type PathBuf = path::PathBuf;
+
+    type SameFileHandle = same_file::Handle;
+
 
     #[allow(unused_variables)]
-    fn new<P: AsRef<Self::Path>>(root: P) -> Self {
+    fn intoiter_new(self) -> Self::IntoIterExt {
+        Self::IntoIterExt {}
+    }
+
+    fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle> {
+        same_file::Handle::from_path(path)
+    }
+
+    fn ancestor_new(dent: &DirEntry<Self>) -> io::Result<Self::AncestorExt> {
+        let handle = same_file::Handle::from_path(dent.path())?;
+        Ok(Self::AncestorExt { handle })
+    }
+
+    #[allow(unused_variables)]
+    fn is_same(ancestor: &Ancestor<Self>, child: &Self::SameFileHandle) -> io::Result<bool> {
+        Ok(child == &ancestor.ext.handle)
+    }
+
+    fn metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+        fs::metadata(path)
+    }
+
+    /// Get metadata for symlink
+    fn symlink_metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {
+        fs::symlink_metadata(path)
+    }
+
+    /// Get metadata for symlink
+    fn symlink_metadata_internal(dent: &DirEntry<Self>) -> io::Result<Self::FsMetadata> {
+        Ok(dent.ext.metadata.clone())
+    }
+
+    #[allow(unused_variables)]
+    fn read_dir<P: AsRef<Self::Path>>(dent: &DirEntry<Self>, path: P) -> io::Result<Self::FsReadDir> {
+        fs::read_dir(path.as_ref())
+    }
+
+    /// This works around a bug in Rust's standard library:
+    /// https://github.com/rust-lang/rust/issues/46484
+    #[allow(unused_variables)]
+    fn is_dir(dent: &DirEntry<Self>) -> bool {
+        use std::os::windows::fs::MetadataExt;
+        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
+
+        dent.ext.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+    }
+
+    fn dent_from_fsentry(ent: &Self::FsDirEntry) -> io::Result<Self::DirEntryExt> {
+        Ok(Self::DirEntryExt { metadata: ent.metadata()? })
+    }
+
+    fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt {
+        Self::DirEntryExt { metadata: md }
+    }
+
+
+    #[allow(unused_variables)]
+    fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self {
         Self {}
     }
 
@@ -105,6 +123,9 @@ impl SourceExt for WalkDirWindowsExt {
         file::information(h).map(|info| info.volume_serial_number())
     }
     
+    fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName {
+        path.file_name().unwrap_or_else(|| path.as_os_str())
+    }
 } 
 
 

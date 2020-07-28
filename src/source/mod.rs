@@ -1,6 +1,7 @@
 /*!
 Source-specific extensions for directory walking
 */
+mod util;
 mod stub;
 #[cfg(unix)]
 mod unix;
@@ -23,92 +24,118 @@ pub type DefaultSourceExt = WalkDirUnixExt;
 /// Default source-specific type.
 pub type DefaultSourceExt = WalkDirWindowsExt;
 
-use std::fmt::Debug;
+use std::fmt;
 use std::ops::Deref;
 use std::convert::AsRef;
+use std::marker::Send;
 use std::io;
-use std::fs;
-//use std::marker::Sized;
-
-use same_file::Handle;
 
 use crate::dent::DirEntry;
 use crate::Ancestor;
 
+/// Functions for SourceExt::Path
 pub trait SourcePath<PathBuf> {
     fn to_path_buf(&self) -> PathBuf;
 }
 
+/// Functions for SourceExt::PathBuf
+pub trait SourcePathBuf<'s> {
+    type Display: 's + fmt::Display;
 
-impl SourcePath<std::path::PathBuf> for std::path::Path {
-    #[inline(always)]
-    fn to_path_buf(&self) -> std::path::PathBuf {
-        self.to_path_buf()
-    }
+    fn display(&'s self) -> Self::Display;
 }
 
-impl SourcePath<std::string::String> for str {
-    #[inline(always)]
-    fn to_path_buf(&self) -> std::string::String {
-        self.to_string()
-    }
+/// Functions for FsDirEntry
+pub trait SourceFsDirEntry<E: SourceExt> {
+    fn path(&self) -> E::PathBuf;
+    fn file_type(&self) -> io::Result<E::FsFileType>;
 }
 
+/// Functions for FsFileType
+pub trait SourceFsFileType: Clone + Copy {
+    fn is_dir(&self) -> bool;
+    fn is_file(&self) -> bool;
+    fn is_symlink(&self) -> bool;
+}
 
-/// Extension for IntoIter
-pub trait SourceIntoIterExt<E: SourceExt> {
+/// Functions for FsMetadata
+pub trait SourceFsMetadata<E: SourceExt> {
+    fn file_type(&self) -> E::FsFileType;
+}
+
+/// Functions for FsReadDir
+pub trait SourceFsReadDir<E: SourceExt>: fmt::Debug + Iterator<Item=io::Result<E::FsDirEntry>> {}
+
+/// Trait for source-specific extensions
+pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
+    /// Extension for WalkDirOptions
+    type OptionsExt: fmt::Debug + Default;
+    /// Extension for IntoIter
+    type IntoIterExt: fmt::Debug;
+    /// Extension for Ancestor
+    type AncestorExt: fmt::Debug + Sized;
+    /// Extension for DirEntry
+    type DirEntryExt: fmt::Debug + Clone;
+
+    /// ffi::OsStr
+    type FsFileName: ?Sized;
+    /// fs::DirEntry
+    type FsDirEntry: SourceFsDirEntry<Self>;
+    /// fs::ReadDir
+    type FsReadDir: SourceFsReadDir<Self>;
+    /// fs::FileType
+    type FsFileType: SourceFsFileType;
+    /// fs::Metadata
+    type FsMetadata: SourceFsMetadata<Self>;
+
+    /// std::path::Path
+    type Path: ?Sized + SourcePath<Self::PathBuf> + AsRef<Self::Path>;
+    /// std::path::PathBuf
+    type PathBuf: fmt::Debug + Clone + Send + Sync + Deref<Target = Self::Path> + AsRef<Self::Path> + for<'s> SourcePathBuf<'s>;
+
+    /// Handle to determine the sameness of two dirs
+    type SameFileHandle: Eq;
+
     /// Make new
-    fn new(ext: E) -> Self;
-}
+    fn intoiter_new(self) -> Self::IntoIterExt;
 
-/// Extension for Ancestor
-pub trait SourceAncestorExt<E: SourceExt>: Debug + Sized {
+    /// Return the unique handle 
+    fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle>;
+
     /// Make new
-    fn new(dent: &DirEntry<E>) -> io::Result<Self>;
+    fn ancestor_new(dent: &DirEntry<Self>) -> io::Result<Self::AncestorExt>;
+    
     /// Check if this entry and child is same
-    fn is_same(&self, ancestor: &Ancestor<E>, child: &Handle) -> io::Result<bool> {
-        Ok(child == &Handle::from_path(&ancestor.path)?)
+    fn is_same(ancestor: &Ancestor<Self>, child: &Self::SameFileHandle) -> io::Result<bool> {
+        Ok(child == &Self::get_handle(&ancestor.path)?)
     }
-}
-
-/// Extensions for DirEntry
-pub trait SourceDirEntryExt<E: SourceExt>: Debug + Clone {
-    /// Get metadata for symlink
-    fn metadata<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::Metadata>;
 
     /// Get metadata for symlink
-    fn symlink_metadata(&self, entry: &DirEntry<E>) -> io::Result<fs::Metadata>;
+    fn metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata>;
 
     /// Get metadata for symlink
-    fn read_dir<P: AsRef<E::Path>>(&self, path: P) -> io::Result<fs::ReadDir>;
+    fn symlink_metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata>;
+
+    /// Get metadata for symlink
+    fn symlink_metadata_internal(dent: &DirEntry<Self>) -> io::Result<Self::FsMetadata>;
+
+    /// Get metadata for symlink
+    fn read_dir<P: AsRef<Self::Path>>(dent: &DirEntry<Self>, path: P) -> io::Result<Self::FsReadDir>;
 
     /// Check if this entry is a directory
-    fn is_dir(&self, entry: &DirEntry<E>) -> bool {
-        entry.file_type().is_dir()
+    fn is_dir(dent: &DirEntry<Self>) -> bool {
+        dent.file_type().is_dir()
     }
 
     /// Create extension from DirEntry
-    fn from_entry(ent: &fs::DirEntry) -> io::Result<Self>;
+    fn dent_from_fsentry(ent: &Self::FsDirEntry) -> io::Result<Self::DirEntryExt>;
     /// Create extension from metadata
-    fn from_metadata(md: fs::Metadata) -> Self;
-}
-
-/// Trait for source-specific extensions
-pub trait SourceExt: Debug + Clone {
-    /// Extension for WalkDirOptions
-    type OptionsExt: Default + Debug;
-    /// Extension for IntoIter
-    type IntoIterExt: SourceIntoIterExt<Self>;
-    /// Extension for Ancestor
-    type AncestorExt: SourceAncestorExt<Self>;
-    /// Extension for DirEntry
-    type DirEntryExt: SourceDirEntryExt<Self>;
-
-    type PathBuf: Debug + Clone + Deref<Target = Self::Path> + AsRef<Self::Path>;
-    type Path: ?Sized + SourcePath<Self::PathBuf> + AsRef<Self::Path>;
+    fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt;
 
     /// Make new 
-    fn new<P: AsRef<Self::Path>>(root: P) -> Self;
+    fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self;
 
     fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64>;
+
+    fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName;
 }
