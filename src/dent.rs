@@ -230,10 +230,10 @@ pub trait DirEntryExt {
 }
 
 #[cfg(unix)]
-impl DirEntryExt for DirEntry {
+impl DirEntryExt for DirEntry<source::WalkDirUnixExt> {
     /// Returns the underlying `d_ino` field in the contained `dirent`
     /// structure.
     fn ino(&self) -> u64 {
-        self.ino
+        self.ext.ino
     }
 }

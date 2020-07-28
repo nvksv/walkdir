@@ -4,12 +4,10 @@ use std::path;
 use std::fmt::Debug;
 use std::io;
 use std::fs;
-//use std::marker::Sized;
 
 use same_file;
 
 use crate::dent::DirEntry;
-use crate::Ancestor;
 
 #[derive(Debug)]
 pub struct AncestorWindowsExt {
@@ -69,8 +67,8 @@ impl SourceExt for WalkDirWindowsExt {
     }
 
     #[allow(unused_variables)]
-    fn is_same(ancestor: &Ancestor<Self>, child: &Self::SameFileHandle) -> io::Result<bool> {
-        Ok(child == &ancestor.ext.handle)
+    fn is_same(ancestor_path: &Self::PathBuf, ancestor_ext: &Self::AncestorExt, child: &Self::SameFileHandle) -> io::Result<bool> {
+        Ok(child == &ancestor_ext.handle)
     }
 
     fn metadata<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::FsMetadata> {

@@ -32,7 +32,6 @@ use std::io;
 use std::cmp::Ord;
 
 use crate::dent::DirEntry;
-use crate::Ancestor;
 
 /// Functions for SourceExt::Path
 pub trait SourcePath<PathBuf> {
@@ -116,8 +115,9 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
     fn ancestor_new(dent: &DirEntry<Self>) -> io::Result<Self::AncestorExt>;
     
     /// Check if this entry and child is same
-    fn is_same(ancestor: &Ancestor<Self>, child: &Self::SameFileHandle) -> io::Result<bool> {
-        Ok(child == &Self::get_handle(&ancestor.path)?)
+    #[allow(unused_variables)]
+    fn is_same(ancestor_path: &Self::PathBuf, ancestor_ext: &Self::AncestorExt, child: &Self::SameFileHandle) -> io::Result<bool> {
+        Ok(child == &Self::get_handle(ancestor_path)?)
     }
 
     /// Get metadata for symlink

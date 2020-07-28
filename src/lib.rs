@@ -557,7 +557,7 @@ pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
 /// An ancestor is an item in the directory tree traversed by walkdir, and is
 /// used to check for loops in the tree when traversing symlinks.
 #[derive(Debug)]
-pub struct Ancestor<E: source::SourceExt> {
+struct Ancestor<E: source::SourceExt> {
     /// The path of this ancestor.
     path: E::PathBuf,
     /// Extension part
@@ -573,7 +573,7 @@ impl<E: source::SourceExt> Ancestor<E> {
     /// Returns true if and only if the given open file handle corresponds to
     /// the same directory as this ancestor.
     fn is_same(&self, child: &E::SameFileHandle) -> io::Result<bool> {
-        E::is_same(&self, child)
+        E::is_same(&self.path, &self.ext, child)
     }
 }
 

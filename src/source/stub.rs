@@ -5,7 +5,6 @@ use std::io;
 use std::fs;
 
 use crate::dent::DirEntry;
-use crate::Ancestor;
 
 /// Useful stub for nothing
 #[derive(Debug, Clone, Default)]
@@ -44,7 +43,7 @@ impl SourceExt for Nil {
     }
 
     #[allow(unused_variables)]
-    fn is_same(ancestor: &Ancestor<Self>, child: &Self::SameFileHandle) -> io::Result<bool> {
+    fn is_same(ancestor_path: &Self::PathBuf, ancestor_ext: &Self::AncestorExt, child: &Self::SameFileHandle) -> io::Result<bool> {
         Ok(false)
     }
 
