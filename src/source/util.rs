@@ -30,6 +30,7 @@ pub struct StringDisplay<'s> {
 }
 
 impl<'s> std::fmt::Display for StringDisplay<'s> {
+    #[inline(always)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self.inner, f)
     }

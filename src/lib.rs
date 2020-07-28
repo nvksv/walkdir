@@ -150,7 +150,7 @@ macro_rules! itry {
 ///
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
 /// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
-pub type Result<T, E: source::SourceExt = source::DefaultSourceExt> = ::std::result::Result<T, Error<E>>;
+pub type Result<T, E = source::DefaultSourceExt> = ::std::result::Result<T, Error<E>>;
 
 /// A builder to create an iterator for recursively walking a directory.
 ///

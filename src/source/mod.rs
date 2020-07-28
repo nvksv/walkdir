@@ -29,37 +29,47 @@ use std::ops::Deref;
 use std::convert::AsRef;
 use std::marker::Send;
 use std::io;
+use std::cmp::Ord;
 
 use crate::dent::DirEntry;
 use crate::Ancestor;
 
 /// Functions for SourceExt::Path
 pub trait SourcePath<PathBuf> {
+    /// Copy to owned 
     fn to_path_buf(&self) -> PathBuf;
 }
 
 /// Functions for SourceExt::PathBuf
 pub trait SourcePathBuf<'s> {
+    /// Intermediate object
     type Display: 's + fmt::Display;
 
+    /// Create intermediate object which can Display
     fn display(&'s self) -> Self::Display;
 }
 
 /// Functions for FsDirEntry
 pub trait SourceFsDirEntry<E: SourceExt> {
+    /// Get path of this entry
     fn path(&self) -> E::PathBuf;
+    /// Get type of this entry
     fn file_type(&self) -> io::Result<E::FsFileType>;
 }
 
 /// Functions for FsFileType
 pub trait SourceFsFileType: Clone + Copy {
+    /// Is it dir?
     fn is_dir(&self) -> bool;
+    /// Is it file
     fn is_file(&self) -> bool;
+    /// Is it symlink
     fn is_symlink(&self) -> bool;
 }
 
 /// Functions for FsMetadata
 pub trait SourceFsMetadata<E: SourceExt> {
+    /// Get type of this entry
     fn file_type(&self) -> E::FsFileType;
 }
 
@@ -89,7 +99,7 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
     type FsMetadata: SourceFsMetadata<Self>;
 
     /// std::path::Path
-    type Path: ?Sized + SourcePath<Self::PathBuf> + AsRef<Self::Path>;
+    type Path: ?Sized + Ord + SourcePath<Self::PathBuf> + AsRef<Self::Path>;
     /// std::path::PathBuf
     type PathBuf: fmt::Debug + Clone + Send + Sync + Deref<Target = Self::Path> + AsRef<Self::Path> + for<'s> SourcePathBuf<'s>;
 
@@ -135,7 +145,9 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
     /// Make new 
     fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self;
 
+    /// device_num
     fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64>;
 
+    /// file_name
     fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName;
 }
