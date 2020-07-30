@@ -161,6 +161,10 @@ impl<E: source::SourceExt> DirEntry<E> {
         self
     }
 
+    pub(crate) fn set_depth_mut(&mut self, depth: usize) {
+        self.depth = depth;
+    }
+
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
         E::is_dir(&self)

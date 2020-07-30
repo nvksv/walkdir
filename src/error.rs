@@ -25,13 +25,13 @@ use crate::DirEntry;
 /// [`std::io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
 /// [impl]: struct.Error.html#impl-From%3CError%3E
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Error<E: source::SourceExt = source::DefaultSourceExt> {
     depth: usize,
     inner: ErrorInner<E>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ErrorInner<E: source::SourceExt> {
     Io { path: Option<E::PathBuf>, err: io::Error },
     Loop { ancestor: E::PathBuf, child: E::PathBuf },

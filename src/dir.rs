@@ -1,0 +1,460 @@
+use std::cmp::Ordering;
+use std::io;
+use std::vec;
+use std::convert::From;
+
+
+use crate::{Result, FnCmp, ContentFilter, ContentOrder};
+use crate::dent::DirEntry;
+#[cfg(unix)]
+use crate::dent::DirEntryExt;
+use crate::error::Error;
+use crate::source;
+//use crate::source::{SourceFsFileType, SourceFsMetadata, SourcePath};
+use crate::walk::WalkDirOptions;
+
+
+/////////////////////////////////////////////////////////////////////////
+//// ReadDir
+
+/// A sequence of unconsumed directory entries.
+///
+/// This represents the opened or closed state of a directory handle. When
+/// open, future entries are read by iterating over the raw `fs::ReadDir`.
+/// When closed, all future entries are read into memory. Iteration then
+/// proceeds over a [`Vec<fs::DirEntry>`].
+///
+/// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
+/// [`Vec<fs::DirEntry>`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html
+#[derive(Debug)]
+enum ReadDir<E: source::SourceExt> {
+
+    /// The single item (used for root)
+    Once { item: Option<DirEntry<E>> },
+
+    /// An opened handle.
+    ///
+    /// This includes the depth of the handle itself.
+    ///
+    /// If there was an error with the initial [`fs::read_dir`] call, then it
+    /// is stored here. (We use an [`Option<...>`] to make yielding the error
+    /// exactly once simpler.)
+    ///
+    /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
+    /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
+    Opened { rd: E::FsReadDir },
+
+    /// A closed handle.
+    ///
+    /// All remaining directory entries are read into memory.
+    Closed,
+
+    /// Error on handle creating
+    Error( Option<Error<E>> ),
+}
+
+// Convert Result<DirEntry> to some Option<T>.
+// - Some(T) -- add T to collected vec,
+// - None -- entry must be ignored
+trait FnProcessFsDirEntry<E: source::SourceExt, T>: Fn(Result<DirEntry<E>, E>) -> Option<T> {}
+
+impl<E: source::SourceExt> ReadDir<E> {
+    fn new_once( dent: DirEntry<E> ) -> Self {
+        Self::Once { 
+            item: Some(dent),
+        }
+    }
+
+    fn new( rd: Result<E::FsReadDir, E> ) -> Self {
+        match rd {
+            Ok(rd) => Self::Opened { rd },
+            Err(err) => Self::Error( Some(err) ),
+        }        
+    }
+
+    fn collect_all<F, T>(&mut self, process_fsdent: &mut F) -> Vec<T> where F: FnMut(Result<DirEntry<E>, E>) -> Option<T> {
+        match *self {
+            ReadDir::Opened { ref mut rd } => {
+                let entries = rd.map(Self::process_next).map(process_fsdent).filter_map(|opt| opt).collect();
+                *self = ReadDir::<E>::Closed;
+                entries
+            },
+            ReadDir::Once { ref mut item } => {
+                let entries = match item.take() {
+                    Some(dent) => match process_fsdent(Ok(dent)) {
+                        Some(t) => vec![t],
+                        None => vec![],
+                    },
+                    None => vec![],
+                };
+                *self = ReadDir::<E>::Closed;
+                entries
+            },
+            ReadDir::Closed => {
+                vec![]
+            },
+            ReadDir::Error( ref mut oerr ) => {
+                match oerr.take() {
+                    Some(err) => match process_fsdent(Err(err)) {
+                        Some(e) => vec![e],
+                        None => vec![],
+                    },
+                    None => vec![],
+                }
+            },
+        }
+    }
+
+    fn process_next( r_ent: io::Result<E::FsDirEntry> ) -> Result<DirEntry<E>, E> {
+        match r_ent {
+            Ok(ent) => {
+                DirEntry::<E>::from_entry( &ent )
+            },
+            Err(err) => {
+                Err(Error::from_io( err ))
+            },
+        }
+    }
+}
+
+impl<E: source::SourceExt> Iterator for ReadDir<E> {
+    type Item = Result<DirEntry<E>, E>;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Result<DirEntry<E>, E>> {
+        match *self {
+            ReadDir::Once { ref mut item } => {
+                item.take().map(Ok)
+            },
+            ReadDir::Opened { ref mut rd } => {
+                rd.next().map(Self::process_next)
+            },
+            ReadDir::Closed => {
+                None
+            },
+            ReadDir::Error( ref mut err ) => {
+                err.take().map(Err)
+            },
+        }
+    }
+}
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////
+//// DirEntryRecord
+
+#[derive(Debug)]
+struct DirEntryRecord<E: source::SourceExt> {
+    /// Value from ReadDir
+    dent: Result<DirEntry<E>, E>,
+    /// This entry is a dir and will be walked recursive
+    is_dir: bool,
+    /// This entry must be yielded first according to opts.content_order
+    first_pass: bool,
+    /// This entry will not be yielded according to opts.content_filter
+    hidden: bool,
+}
+
+/// Follow symlinks and check same_file_system. Also determine is_dir flag.
+/// - Some(Ok((dent, is_dir))) -- normal entry to yielding
+/// - Some(Err(_)) -- some error occured
+/// - None -- entry must be ignored
+trait FnProcessDirEntry<E: source::SourceExt>: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {}
+
+impl<E: source::SourceExt> DirEntryRecord<E> {
+    fn new<F>( rdr: Result<DirEntry<E>, E>, opts: &WalkDirOptions<E>, process_dent: &mut F ) -> Option<Self> where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        let rdr_flatten = match rdr {
+            Ok(dent) => match process_dent(dent) {
+                Some(rdent) => rdent,
+                None => return None,
+            },
+            Err(e) => Err(e),
+        };
+
+        let this = match rdr_flatten {
+            Ok((dent, is_dir)) => {
+                let first_pass = match opts.content_order {
+                    ContentOrder::None => false,
+                    ContentOrder::DirsFirst => is_dir,
+                    ContentOrder::FilesFirst => !is_dir,
+                };
+
+                let hidden = match opts.content_filter {
+                    ContentFilter::None => false,
+                    ContentFilter::DirsOnly => !is_dir,
+                    ContentFilter::FilesOnly => is_dir,
+                };
+                
+                Self {
+                    dent: Ok(dent),
+                    is_dir,
+                    first_pass,
+                    hidden,
+                }
+            },
+            Err(err) => {
+                Self {
+                    dent: Err(err),
+                    is_dir: false,
+                    first_pass: false,
+                    hidden: false,
+                }
+            }
+        };
+
+        Some(this)
+    }
+}
+
+
+
+
+/////////////////////////////////////////////////////////////////////////
+//// DirState
+
+#[derive(Debug, PartialEq, Eq)]
+enum DirPass {
+    Entire,
+    First,
+    Second
+}
+
+#[derive(Debug)]
+pub struct DirState<E: source::SourceExt> {
+    /// The depth of this dir
+    depth: usize,
+    /// Source of not consumed DirEntries
+    rd: ReadDir<E>,
+    /// A list of already consumed DirEntries
+    content: Vec<DirEntryRecord<E>>,
+    /// Count of consumed entries = position of unconsumed in content
+    current_pos: Option<usize>,
+    /// Current pass
+    pass: DirPass,
+    /// Current position
+    position: Position<(), ()>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Position<T, E> {
+    BeforeContent,
+    Entry(T),
+    Error(E),
+    AfterContent,
+}
+
+impl<E: source::SourceExt> DirState<E> {
+    fn get_initial_pass( opts: &WalkDirOptions<E> ) -> DirPass {
+        if opts.content_order == ContentOrder::None {
+            DirPass::Entire
+        } else {
+            DirPass::First
+        }
+    }
+
+    fn init<F>(&mut self, opts: &mut WalkDirOptions<E>, process_dent: &mut F) where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+
+        if let Some(_) = &opts.sorter {
+            self.load_all(opts, process_dent);
+            self.sort_content_and_rewind(opts.sorter.as_mut().unwrap());
+        }
+
+    }
+
+    fn new_internal<F>( rd: ReadDir<E>, depth: usize, opts: &mut WalkDirOptions<E>, process_dent: &mut F ) -> Self where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        let mut this = Self {
+            depth,
+            rd,
+            content: vec![],
+            current_pos: None,
+            pass: Self::get_initial_pass(opts),
+            position: Position::BeforeContent,
+        };
+        Self::init(&mut this, opts, process_dent);
+        this
+    }
+
+    /// New DirState from alone DirEntry
+    pub fn new_once<F>( dent: DirEntry<E>, depth: usize, opts: &mut WalkDirOptions<E>, process_dent: &mut F ) -> Self where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        Self::new_internal( ReadDir::<E>::new_once( dent ), depth, opts, process_dent )
+    }
+
+    /// New DirState from FsReadDir
+    pub fn new<F>( rd: Result<E::FsReadDir, E>, depth: usize, opts: &mut WalkDirOptions<E>, process_dent: &mut F ) -> Self where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        Self::new_internal( ReadDir::<E>::new( rd ), depth, opts, process_dent )
+    }
+
+    /// Makes new DirEntryRecord from processed Result<DirEntry> or rejects it. 
+    /// Doesn't change position.
+    fn new_rec<F>(r_ent: Result<DirEntry<E>, E>, opts: &WalkDirOptions<E>, depth: usize, process_dent: &mut F ) -> Option<DirEntryRecord<E>> where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        let mut rec = DirEntryRecord::<E>::new( r_ent, opts, process_dent )?;
+
+        if let Ok(ref mut dent) = rec.dent {
+            dent.set_depth_mut( depth );
+        };
+
+        Some(rec)
+    }
+
+    /// Load all remaining DirEntryRecord into tail of self.content.
+    /// Doesn't change position.
+    pub fn load_all<F>(&mut self, opts: &WalkDirOptions<E>, process_dent: &mut F) where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        let depth = self.depth;
+
+        let mut collected = self.rd.collect_all(&mut |r_ent| Self::new_rec( r_ent, opts, depth, process_dent ));
+
+        if self.content.is_empty() {
+            self.content = collected;
+        } else {
+            self.content.append(&mut collected);
+        }
+    }
+
+    /// Rewind current position: now we stand before beginning.
+    fn rewind_rec(&mut self) {
+        self.current_pos = None;
+    }
+
+    /// Shifts to next record (and loads it when necessary) -- without any passes, content filters and so on.
+    /// Updates current position on success.
+    fn get_next_rec<'r, 's, F>(&'s mut self, opts: &WalkDirOptions<E>, process_dent: &mut F) -> Option<(bool, bool)> where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        loop {
+            // Check for already loaded entry
+            let next_pos = if let Some(pos) = self.current_pos {pos + 1} else {0};
+            if let Some(rec) = self.content.get(next_pos) {
+                self.current_pos = Some(next_pos);
+                return Some((rec.first_pass, rec.hidden));
+            }
+
+            if let Some(r_ent) = self.rd.next() {
+                let rec = match Self::new_rec(r_ent, opts, self.depth, process_dent) {
+                    Some(rec) => rec,
+                    None => continue,
+                };
+                self.content.push(rec);
+                self.current_pos = Some(self.content.len()-1);
+
+                let last = self.content.last();
+                assert!( last.is_some() );
+                let rec = last.unwrap();
+                return Some((rec.first_pass, rec.hidden));
+            }
+
+            break;
+        }
+
+        None
+    }
+
+    /// Gets record at current position
+    /// Doesn't change position.
+    fn get_current_rec(&self) -> Option<&DirEntryRecord<E>> {
+        match self.current_pos {
+            Some(pos) => self.content.get(pos),
+            None => None,
+        }
+    }
+
+    /// Sorts all loaded content.
+    /// Changes current position.
+    fn sort_content_and_rewind(&mut self, cmp: &mut FnCmp<E>) {
+        self.content.sort_by(|a, b| {
+                match (&a.dent, &b.dent) {
+                    (&Ok(ref a), &Ok(ref b)) => cmp(a, b),
+                    (&Err(_), &Err(_)) => Ordering::Equal,
+                    (&Ok(_), &Err(_)) => Ordering::Greater,
+                    (&Err(_), &Ok(_)) => Ordering::Less,
+                }
+            }
+        );
+        self.current_pos = None;
+    }
+
+    /// Gets next record (according to content order and filter).
+    /// Updates current position.
+    fn next<F>(&mut self, opts: &WalkDirOptions<E>, process_dent: &mut F) -> bool where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        loop {
+            if let Some((first_pass, hidden)) = self.get_next_rec(opts, process_dent) {
+                let valid = match self.pass {
+                    DirPass::Entire => true,
+                    DirPass::First => first_pass,
+                    DirPass::Second => !first_pass,
+                };
+
+                if valid && !hidden {
+                    return true;
+                };
+
+                continue;
+            };
+
+            match self.pass {
+                DirPass::Entire | DirPass::Second => {
+                    self.position = Position::AfterContent;
+                    return false;
+                },
+                DirPass::First => {
+                    self.pass = DirPass::Second;
+                    self.rewind_rec();
+                    continue;
+                },
+            };
+        }
+    }
+
+    /// Next
+    /// Updates current position
+    pub fn next_position<F>(&mut self, opts: &WalkDirOptions<E>, process_dent: &mut F) where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+        if self.position == Position::AfterContent {
+            return;
+        };
+
+        if self.next( opts, process_dent ) {
+            // Remember: at this state current rec must exist
+            self.position = Position::Entry(());
+        } else {
+            self.position = Position::AfterContent;
+        };
+    }
+
+    /// Get current state.
+    /// Doesn't change position.
+    pub fn get_current_position(&self) -> Position<(DirEntry<E>, bool), Error<E>> {
+        match self.position {
+            Position::BeforeContent => Position::BeforeContent,
+            Position::Entry(_) => {
+                // At this state current rec must exist
+                let rec = self.get_current_rec().unwrap();
+                match &rec.dent {
+                    Ok(dent) => Position::Entry( (dent.clone(), rec.is_dir) ),
+                    Err(e) => {
+                        let ee = e.clone();
+                        Position::Error(ee)
+                    },
+                }
+            },
+            Position::AfterContent => Position::AfterContent,
+            _ => unreachable!()
+        }
+    }
+
+    /// Gets copy of entire dir, loading all remaining content if necessary (not considering content order).
+    /// Doesn't change position.
+    pub fn clone_all_content<F>(&mut self, filter: ContentFilter, opts: &WalkDirOptions<E>, process_dent: &mut F) -> Vec<DirEntry<E>> where F: FnMut(DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+
+        self.load_all(opts, process_dent);
+        
+        match filter {
+            ContentFilter::None => self.content.iter().filter_map(|rec| rec.dent.ok()).collect(),
+            ContentFilter::DirsOnly => self.content.iter().filter_map(|rec| rec.dent.ok().filter(|_| rec.is_dir)).collect(),
+            ContentFilter::FilesOnly => self.content.iter().filter_map(|rec| rec.dent.ok().filter(|_| !rec.is_dir)).collect(),
+        }
+    }
+
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+}
