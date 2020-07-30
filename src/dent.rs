@@ -155,47 +155,51 @@ impl<E: source::SourceExt> DirEntry<E> {
         self.depth
     }
 
+    /// Sets the depth at which this entry was created relative to the root.
+    pub(crate) fn set_depth(mut self, depth: usize) -> Self {
+        self.depth = depth;
+        self
+    }
+
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
         E::is_dir(&self)
     }
 
     pub(crate) fn from_entry(
-        depth: usize,
         ent: &E::FsDirEntry,
     ) -> Result<DirEntry<E>, E> {
         let path = ent.path();
         let ty = ent
             .file_type()
-            .map_err(|err| Error::<E>::from_path(depth, path.clone(), err))?;
+            .map_err(|err| Error::<E>::from_path(path.clone(), err))?;
         let ext = E::dent_from_fsentry(ent)
-            .map_err(|err| Error::<E>::from_path(depth, path.clone(), err))?;
+            .map_err(|err| Error::<E>::from_path(path.clone(), err))?;
         Ok(DirEntry {
             path: path,
             ty: ty,
             follow_link: false,
-            depth: depth,
+            depth: 0,
             ext,
         })
     }
 
     pub(crate) fn from_path(
-        depth: usize,
         pb: E::PathBuf,
         follow: bool,
     ) -> Result<DirEntry<E>, E> {
         let md = if follow {
             E::metadata(&pb)
-                .map_err(|err| Error::from_path(depth, pb.clone(), err))?
+                .map_err(|err| Error::from_path(pb.clone(), err))?
         } else {
             E::symlink_metadata(&pb)
-                .map_err(|err| Error::from_path(depth, pb.clone(), err))?
+                .map_err(|err| Error::from_path(pb.clone(), err))?
         };
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
-            depth: depth,
+            depth: 0,
             ext: E::dent_from_metadata(md),
         })
     }

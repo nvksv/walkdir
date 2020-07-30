@@ -83,6 +83,12 @@ impl<E: source::SourceExt> Error<E> {
         self.depth
     }
 
+    /// Sets the depth at which this error occurred relative to the root.
+    pub(crate) fn set_depth(mut self, depth: usize) -> Self {
+        self.depth = depth;
+        self
+    }
+
     /// Inspect the original [`io::Error`] if there is one.
     ///
     /// [`None`] is returned if the [`Error`] doesn't correspond to an
@@ -161,12 +167,11 @@ impl<E: source::SourceExt> Error<E> {
     }
 
     pub(crate) fn from_path(
-        depth: usize,
         pb: E::PathBuf,
         err: io::Error,
     ) -> Self {
         Self {
-            depth: depth,
+            depth: 0,
             inner: ErrorInner::Io { path: Some(pb), err: err },
         }
     }
@@ -181,17 +186,19 @@ impl<E: source::SourceExt> Error<E> {
         }
     }
 
-    pub(crate) fn from_io(depth: usize, err: io::Error) -> Self {
-        Self { depth: depth, inner: ErrorInner::Io { path: None, err: err } }
+    pub(crate) fn from_io(err: io::Error) -> Self {
+        Self { 
+            depth: 0, 
+            inner: ErrorInner::Io { path: None, err: err } 
+        }
     }
 
     pub(crate) fn from_loop(
-        depth: usize,
         ancestor: &E::Path,
         child: &E::Path,
     ) -> Self {
         Self {
-            depth: depth,
+            depth: 0,
             inner: ErrorInner::Loop {
                 ancestor: ancestor.to_path_buf(),
                 child: child.to_path_buf(),

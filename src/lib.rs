@@ -147,7 +147,7 @@ type FnCmp<E> = Box<
 >;
 
 /// A variants for filtering content
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ContentFilter {
     /// No filter, all content will be yielded (default)
     None,
@@ -158,7 +158,7 @@ pub enum ContentFilter {
 }
 
 /// A variants for ordering content
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ContentOrder {
     /// No arrange (default)
     None,
