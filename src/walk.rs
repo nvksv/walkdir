@@ -5,14 +5,13 @@ use std::result;
 use std::vec;
 
 
-use crate::{Result, FnCmp, ContentFilter, ContentOrder};
+use crate::wd::{self, Error, ContentFilter, ContentOrder, Position, FnCmp, DeviceNum};
 use crate::dent::DirEntry;
 #[cfg(unix)]
 use crate::dent::DirEntryExt;
-use crate::error::Error;
-use crate::source;
-use crate::source::{SourceFsFileType, SourceFsMetadata, SourcePath};
-use crate::dir::{DirState, Position};
+use crate::error::ErrorInner;
+use crate::source::{self, SourceFsFileType, SourceFsMetadata, SourcePath};
+use crate::dir::{DirState, ProcessedDirEntry};
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -38,7 +37,11 @@ macro_rules! rtry {
     };
 }
 
-
+macro_rules! process_dent {
+    ($self:expr, $depth:expr) => {
+        & |dent| Self::process_dent(dent, $depth, &$self.opts, &$self.root_device, &$self.states_path)
+    };
+}
 
 
 /////////////////////////////////////////////////////////////////////////
@@ -506,7 +509,7 @@ pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
     /// If the `same_file_system` option isn't enabled, then this is always
     /// `None`. Conversely, if it is enabled, this is always `Some(...)` after
     /// handling the root path.
-    root_device: Option<u64>,
+    root_device: Option<DeviceNum>,
     /// Extension part.
     ext: E::IntoIterExt,
 }
@@ -530,21 +533,23 @@ impl<E: source::SourceExt> IntoIter<E> {
     // - Some(Ok((dent, is_dir))) -- normal entry to yielding
     // - Some(Err(_)) -- some error occured
     // - None -- entry must be ignored
-    fn process_dent(&self, dent: DirEntry<E>) -> Option<Result<(DirEntry<E>, bool), E>> {
+    fn process_dent(dent: DirEntry<E>, depth: usize, opts: &WalkDirOptions<E>, root_device: &Option<DeviceNum>, states_path: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>> {
         
-        if self.opts.follow_links && dent.file_type().is_symlink() {
-            dent = ortry!(self.follow(dent));
-        }
+        let dent2 = if opts.follow_links && dent.file_type().is_symlink() {
+            ortry!(Self::follow(dent, states_path))
+        } else {
+            dent
+        };
 
-        let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
+        let is_normal_dir = !dent2.file_type().is_symlink() && dent2.is_dir();
 
         if is_normal_dir {
-            if self.opts.same_file_system && dent.depth() > 0 {
-                if ! ortry!(self.is_same_file_system(&dent)) {
+            if opts.same_file_system && depth > 0 {
+                if ! ortry!(Self::is_same_file_system(root_device, &dent2)) {
                     return None;
                 };
             };
-        } else if self.depth == 0 && dent.file_type().is_symlink() {
+        } else if depth == 0 && dent2.file_type().is_symlink() {
             // As a special case, if we are processing a root entry, then we
             // always follow it even if it's a symlink and follow_links is
             // false. We are careful to not let this change the semantics of
@@ -552,24 +557,24 @@ impl<E: source::SourceExt> IntoIter<E> {
             // the follow_links setting. When it's disabled, it should report
             // itself as a symlink. When it's enabled, it should always report
             // itself as the target.
-            let md = ortry!(E::metadata(dent.path()).map_err(|err| {
-                Error::from_path(dent.path().to_path_buf(), err).set_depth(self.depth)
+            let md = ortry!(E::metadata(dent2.path()).map_err(|err| {
+                ErrorInner::<E>::from_path(dent2.path().to_path_buf(), err)
             }));
             if ! md.file_type().is_dir() {
                 return None;
             };
         };
 
-        Some(Ok((dent, is_normal_dir)))
+        Some(Ok(ProcessedDirEntry{ dent: dent2, is_dir: is_normal_dir }))
     }
 
-    fn init(&mut self, start: E::PathBuf) -> Result<(), E> {
+    fn init(&mut self, start: E::PathBuf) -> wd::ResultInner<(), E> {
         if self.opts.same_file_system {
             let result = E::device_num(&start)
-                .map_err(|e| Error::<E>::from_path(start.clone(), e).set_depth(0));
+                .map_err(|e| ErrorInner::<E>::from_path(start.clone(), e));
             self.root_device = Some(rtry!(result));
         }
-        let dent = rtry!(DirEntry::<E>::from_path(start, false)).set_depth(0);
+        let dent = rtry!(DirEntry::<E>::from_path(start, false).map_err(wd::Error::into_inner));
 
         self.push_dir(dent, 0, true)?;
 
@@ -617,24 +622,28 @@ impl<E: source::SourceExt> IntoIter<E> {
     //     }
     // }
 
-    fn push_dir(&mut self, dent: DirEntry<E>, depth: usize, is_root: bool) -> Result<(), E> {
+    fn push_dir(&mut self, dent: DirEntry<E>, depth: usize, is_root: bool) -> wd::ResultInner<(), E> {
+
         // Make room for another open file descriptor if we've hit the max.
         let free = self.states.len().checked_sub(self.oldest_opened).unwrap();
         if free == self.opts.max_open {
-            self.states[self.oldest_opened].load_all(&self.opts, &mut |dent| self.process_dent(dent));
+            let state = self.states.get_mut(self.oldest_opened).unwrap();
+            
+            let process_dent = process_dent!(self, depth);
+            DirState::load_all(&mut state.rd, &mut state.content, &self.opts, self.depth, process_dent );
         }
 
-        let mut state = if is_root { 
-            DirState::<E>::new_once( dent.clone(), depth, &mut self.opts, &mut |dent| self.process_dent(dent) ) 
+        let state = if is_root { 
+            DirState::<E>::new_once( dent.clone(), depth, &mut self.opts, process_dent!(self, depth) ) 
         } else {
             // Open a handle to reading the directory's entries.
-            let rd = E::read_dir(&dent, dent.path()).map_err(|err| Error::<E>::from_path(dent.path().to_path_buf(), err).set_depth(depth));
-            DirState::<E>::new( rd, depth, &mut self.opts, &mut |dent| self.process_dent(dent) )
+            let rd = E::read_dir(&dent, dent.path()).map_err(|err| ErrorInner::<E>::from_path(dent.path().to_path_buf(), err));
+            DirState::<E>::new( rd, depth, &mut self.opts, process_dent!(self, depth) )
         };
 
         if self.opts.follow_links {
             let ancestor = Ancestor::new(&dent)
-                .map_err(|err| Error::from_io(err).set_depth(depth))?;
+                .map_err(|err| ErrorInner::<E>::from_io(err))?;
             self.states_path.push(ancestor);
         }
 
@@ -729,14 +738,14 @@ impl<E: source::SourceExt> IntoIter<E> {
             None => return None,
         };
 
-        let content = cur_state.clone_all_content(filter, &self.opts, &mut |dent| self.process_dent(dent) );
+        let content = cur_state.clone_all_content(filter, &self.opts, process_dent!(self, cur_state.depth()) );
         
         Some(content)
     }
 }
 
 impl<E: source::SourceExt> Iterator for IntoIter<E> {
-    type Item = Position<DirEntry<E>, Error<E>>;
+    type Item = Position<DirEntry<E>, wd::Error<E>>;
     /// Advances the iterator and returns the next value.
     ///
     /// # Errors
@@ -747,7 +756,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
         // Initial actions
         if let Some(start) = self.start.take() {
             if let Err(e) = self.init(start) {
-                return Some(Position::Error(e));
+                return Some(Position::Error(wd::Error::from_inner(e, 0)));
                 // Here self.states is empty, so next call will always return None.
             };
         }
@@ -761,16 +770,16 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
             match cur_state.get_current_position() {
                 Position::BeforeContent => {
                     assert!( self.transition_state == TransitionState::None );
-
-                    cur_state.next_position( &self.opts, &mut |dent| self.process_dent(dent) );
+                    
+                    cur_state.next_position( &self.opts, process_dent!(self, cur_state.depth()) );
                     return Some(Position::BeforeContent);
                 }, 
-                Position::Entry((dent, is_dir)) => {
+                Position::Entry(ProcessedDirEntry{dent, is_dir}) => {
                     if is_dir {
                         match self.transition_state {
                             TransitionState::AfterPopUp => {
                                 self.transition_state = TransitionState::None;
-                                cur_state.next_position( &self.opts, &mut |dent| self.process_dent(dent) );
+                                cur_state.next_position( &self.opts, process_dent!(self, cur_state.depth()) );
                                 if self.opts.contents_first {
                                     return Some(Position::Entry(dent));
                                 };
@@ -791,14 +800,14 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                     } else {
                         assert!( self.transition_state == TransitionState::None );
 
-                        cur_state.next_position( &self.opts, &mut |dent| self.process_dent(dent) );
+                        cur_state.next_position( &self.opts, process_dent!(self, cur_state.depth()) );
                         return Some(Position::Entry(dent));
                     }
                 },
                 Position::Error(e) => {
                     assert!( self.transition_state == TransitionState::None );
 
-                    cur_state.next_position( &self.opts, &mut |dent| self.process_dent(dent) );
+                    cur_state.next_position( &self.opts, process_dent!(self, cur_state.depth()) );
                     return Some(Position::Error(e));
                 },
                 Position::AfterContent => {
@@ -932,43 +941,39 @@ impl<E: source::SourceExt> IntoIter<E> {
     // }
 
 
-    fn follow(&self, mut dent: DirEntry<E>) -> Result<DirEntry<E>, E> {
-        dent = DirEntry::<E>::from_path(
+    fn follow(dent: DirEntry<E>, states_path: &Vec<Ancestor<E>>) -> wd::ResultInner<DirEntry<E>, E> {
+        let dent2 = DirEntry::<E>::from_path(
             dent.path().to_path_buf(),
             true,
-        )?;
+        ).map_err(wd::Error::into_inner)?;
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
-        if dent.is_dir() {
-            self.check_loop(dent.path())?;
+        if dent2.is_dir() {
+            Self::check_loop(dent2.path(), states_path)?;
         }
-        Ok(dent)
+        Ok(dent2)
     }
 
-    fn check_loop<P: AsRef<E::Path>>(&self, child: P) -> Result<(), E> {
-        let hchild = E::get_handle(&child)
-            .map_err(|err| Error::from_io(err).set_depth(self.depth))?;
+    fn check_loop<P: AsRef<E::Path>>(child: P, states_path: &Vec<Ancestor<E>>) -> wd::ResultInner<(), E> {
+        let hchild = E::get_handle(&child).map_err(ErrorInner::<E>::from_io)?;
 
-        for ancestor in self.states_path.iter().rev() {
-            let is_same = ancestor
-                .is_same(&hchild)
-                .map_err(|err| Error::from_io(err).set_depth(self.depth))?;
+        for ancestor in states_path.iter().rev() {
+            let is_same = ancestor.is_same(&hchild).map_err(ErrorInner::<E>::from_io)?;
             if is_same {
-                return Err(Error::<E>::from_loop(
+                return Err(ErrorInner::<E>::from_loop(
                     &ancestor.path,
                     child.as_ref()
-                ).set_depth(self.depth));
+                ));
             }
         }
         Ok(())
     }
 
-    fn is_same_file_system(&mut self, dent: &DirEntry<E>) -> Result<bool, E> {
+    fn is_same_file_system(root_device: &Option<DeviceNum>, dent: &DirEntry<E>) -> wd::ResultInner<bool, E> {
         let dent_device = E::device_num(dent.path())
-            .map_err(|err| Error::from_entry(dent, err))?;
-        Ok(self
-            .root_device
+            .map_err(|err| ErrorInner::<E>::from_entry(dent, err))?;
+        Ok(root_device
             .map(|d| d == dent_device)
             .expect("BUG: called is_same_file_system without root device"))
     }

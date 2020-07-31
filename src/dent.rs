@@ -1,9 +1,9 @@
 use std::fmt;
 
-use crate::error::Error;
+use crate::wd::{self};
 use crate::source;
 use crate::source::{SourceFsDirEntry, SourceFsFileType, SourceFsMetadata};
-use crate::Result;
+use crate::error::ErrorInner;
 
 /// A directory entry.
 ///
@@ -42,8 +42,8 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// Is set when this entry was created from a symbolic link and the user
     /// expects the iterator to follow symbolic links.
     follow_link: bool,
-    /// The depth at which this entry was generated relative to the root.
-    depth: usize,
+    // /// The depth at which this entry was generated relative to the root.
+    // depth: usize,
     /// The source-specific part.
     pub(crate) ext: E::DirEntryExt,
 }
@@ -113,17 +113,17 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    pub fn metadata(&self) -> Result<E::FsMetadata, E> {
-        self.metadata_internal()
+    pub fn metadata(&self) -> wd::Result<E::FsMetadata, E> {
+        self.metadata_internal().map_err(|inner| wd::Error::from_inner(inner, 0))
     }
 
-    fn metadata_internal(&self) -> Result<E::FsMetadata, E> {
+    fn metadata_internal(&self) -> wd::ResultInner<E::FsMetadata, E> {
         if self.follow_link {
             E::metadata(&self.path)
         } else {
             E::symlink_metadata_internal(self)
         }
-        .map_err(|err| Error::from_entry(self, err))
+        .map_err(ErrorInner::<E>::from_io)
     }
 
     /// Return the file type for the file that this entry points to.
@@ -146,24 +146,24 @@ impl<E: source::SourceExt> DirEntry<E> {
         E::get_file_name(&self.path)
     }
 
-    /// Returns the depth at which this entry was created relative to the root.
-    ///
-    /// The smallest depth is `0` and always corresponds to the path given
-    /// to the `new` function on `WalkDir`. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
-    pub fn depth(&self) -> usize {
-        self.depth
-    }
+    // /// Returns the depth at which this entry was created relative to the root.
+    // ///
+    // /// The smallest depth is `0` and always corresponds to the path given
+    // /// to the `new` function on `WalkDir`. Its direct descendents have depth
+    // /// `1`, and their descendents have depth `2`, and so on.
+    // pub fn depth(&self) -> usize {
+    //     self.depth
+    // }
 
-    /// Sets the depth at which this entry was created relative to the root.
-    pub(crate) fn set_depth(mut self, depth: usize) -> Self {
-        self.depth = depth;
-        self
-    }
+    // /// Sets the depth at which this entry was created relative to the root.
+    // pub(crate) fn set_depth(mut self, depth: usize) -> Self {
+    //     self.depth = depth;
+    //     self
+    // }
 
-    pub(crate) fn set_depth_mut(&mut self, depth: usize) {
-        self.depth = depth;
-    }
+    // pub(crate) fn set_depth_mut(&mut self, depth: usize) {
+    //     self.depth = depth;
+    // }
 
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
@@ -172,18 +172,18 @@ impl<E: source::SourceExt> DirEntry<E> {
 
     pub(crate) fn from_entry(
         ent: &E::FsDirEntry,
-    ) -> Result<DirEntry<E>, E> {
+    ) -> wd::ResultInner<DirEntry<E>, E> {
         let path = ent.path();
         let ty = ent
             .file_type()
-            .map_err(|err| Error::<E>::from_path(path.clone(), err))?;
+            .map_err(|err| ErrorInner::<E>::from_path(path.clone(), err))?;
         let ext = E::dent_from_fsentry(ent)
-            .map_err(|err| Error::<E>::from_path(path.clone(), err))?;
+            .map_err(|err| ErrorInner::<E>::from_path(path.clone(), err))?;
         Ok(DirEntry {
             path: path,
             ty: ty,
             follow_link: false,
-            depth: 0,
+//            depth: 0,
             ext,
         })
     }
@@ -191,19 +191,19 @@ impl<E: source::SourceExt> DirEntry<E> {
     pub(crate) fn from_path(
         pb: E::PathBuf,
         follow: bool,
-    ) -> Result<DirEntry<E>, E> {
+    ) -> wd::Result<DirEntry<E>, E> {
         let md = if follow {
             E::metadata(&pb)
-                .map_err(|err| Error::from_path(pb.clone(), err))?
+                .map_err(|err| wd::Error::from_inner(ErrorInner::<E>::from_path(pb.clone(), err), 0))?
         } else {
             E::symlink_metadata(&pb)
-                .map_err(|err| Error::from_path(pb.clone(), err))?
+                .map_err(|err| wd::Error::from_inner(ErrorInner::<E>::from_path(pb.clone(), err), 0))?
         };
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
-            depth: 0,
+//            depth: 0,
             ext: E::dent_from_metadata(md),
         })
     }
@@ -215,7 +215,7 @@ impl<E: source::SourceExt> Clone for DirEntry<E> {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
-            depth: self.depth,
+//            depth: self.depth,
             ext: self.ext.clone(),
         }
     }
