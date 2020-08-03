@@ -12,6 +12,7 @@ use crate::source;
 use crate::walk::WalkDirOptions;
 
 
+
 /////////////////////////////////////////////////////////////////////////
 //// ReadDir
 
@@ -132,6 +133,9 @@ impl<E: source::SourceExt> Iterator for ReadDir<E> {
     }
 }
 
+
+
+
 /////////////////////////////////////////////////////////////////////////
 //// 
 
@@ -139,6 +143,7 @@ pub struct ProcessedDirEntry<E: source::SourceExt> {
     pub dent: DirEntry<E>,
     pub is_dir: bool,
 }
+
 
 
 
@@ -160,8 +165,8 @@ struct DirEntryRecord<E: source::SourceExt> {
 impl<E: source::SourceExt> DirEntryRecord<E> {
     fn new( rdr: wd::ResultInner<DirEntry<E>, E>, opts: &WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Option<Self> {
         let rdr_flatten = match rdr {
-            Ok(dent) => match process_dent(dent) {
-                Some(rdent) => rdent,
+            Ok(raw_dent) => match process_dent(raw_dent) {
+                Some(pdent) => pdent,
                 None => return None,
             },
             Err(e) => Err(e),
@@ -208,6 +213,63 @@ impl<E: source::SourceExt> DirEntryRecord<E> {
 /////////////////////////////////////////////////////////////////////////
 //// DirState
 
+#[derive(Debug)]
+pub struct DirContent<E: source::SourceExt> {
+    /// Source of not consumed DirEntries
+    rd: ReadDir<E>,
+    /// A list of already consumed DirEntries
+    content: Vec<DirEntryRecord<E>>,
+}
+
+impl<E: source::SourceExt> DirContent<E> {
+    /// New DirContent from alone DirEntry
+    pub fn new_once( raw_dent: DirEntry<E> ) -> Self {
+        Self{
+            rd: ReadDir::<E>::new_once( raw_dent ),
+            content: vec![],
+        }
+    }
+
+    /// New DirContent from FsReadDir
+    pub fn new( rd: wd::ResultInner<E::FsReadDir, E> ) -> Self {
+        Self{
+            rd: ReadDir::<E>::new( rd ),
+            content: vec![],
+        }
+    }
+
+    /// Load all remaining DirEntryRecord into tail of self.content.
+    /// Doesn't change position.
+    pub(crate) fn load_all(rd: &mut ReadDir<E>, content: &mut Vec<DirEntryRecord<E>>, opts: &WalkDirOptions<E>, depth: usize, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) {
+        let mut collected = rd.collect_all(& |r_ent| Self::new_rec( r_ent, opts, depth, process_dent ));
+
+        if content.is_empty() {
+            *content = collected;
+        } else {
+            content.append(&mut collected);
+        }
+    }
+
+    /// Makes new DirEntryRecord from processed Result<DirEntry> or rejects it. 
+    /// Doesn't change position.
+    fn new_rec(r_ent: wd::ResultInner<DirEntry<E>, E>, opts: &WalkDirOptions<E>, depth: usize, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Option<DirEntryRecord<E>> {
+        let rec = DirEntryRecord::<E>::new( r_ent, opts, process_dent )?;
+
+        // if let Ok(ref mut dent) = rec.dent {
+        //     dent.set_depth_mut( depth );
+        // };
+
+        Some(rec)
+    }
+
+
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////
+//// DirState
+
 #[derive(Debug, PartialEq, Eq)]
 enum DirPass {
     Entire,
@@ -219,10 +281,8 @@ enum DirPass {
 pub struct DirState<E: source::SourceExt> {
     /// The depth of this dir
     depth: usize,
-    /// Source of not consumed DirEntries
-    pub(crate) rd: ReadDir<E>,
-    /// A list of already consumed DirEntries
-    pub(crate) content: Vec<DirEntryRecord<E>>,
+    /// Content of this dir
+    rd: DirContent<E>,
     /// Count of consumed entries = position of unconsumed in content
     current_pos: Option<usize>,
     /// Current pass
@@ -272,18 +332,6 @@ impl<E: source::SourceExt> DirState<E> {
     /// New DirState from FsReadDir
     pub fn new( rd: wd::ResultInner<E::FsReadDir, E>, depth: usize, opts: &mut WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Self {
         Self::new_internal( ReadDir::<E>::new( rd ), depth, opts, process_dent )
-    }
-
-    /// Makes new DirEntryRecord from processed Result<DirEntry> or rejects it. 
-    /// Doesn't change position.
-    fn new_rec(r_ent: wd::ResultInner<DirEntry<E>, E>, opts: &WalkDirOptions<E>, depth: usize, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Option<DirEntryRecord<E>> {
-        let rec = DirEntryRecord::<E>::new( r_ent, opts, process_dent )?;
-
-        // if let Ok(ref mut dent) = rec.dent {
-        //     dent.set_depth_mut( depth );
-        // };
-
-        Some(rec)
     }
 
     /// Load all remaining DirEntryRecord into tail of self.content.
