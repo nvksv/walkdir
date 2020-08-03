@@ -7,7 +7,7 @@ use std::result;
 
 use crate::source;
 use crate::source::{SourcePath, SourcePathBuf};
-use crate::{DirEntry, Error};
+use crate::{Position, DirEntry, Error};
 
 /// Create an error from a format!-like syntax.
 #[macro_export]
@@ -102,14 +102,16 @@ impl Dir {
     /// of directory entries and errors.
     pub fn run_recursive<I, E>(&self, it: I) -> RecursiveResults<E>
     where
-        I: IntoIterator<Item = result::Result<DirEntry<E>, Error<E>>>,
+        I: IntoIterator<Item = Position<DirEntry<E>, Error<E>>>,
         E: source::SourceExt,
     {
         let mut results = RecursiveResults { ents: vec![], errs: vec![] };
         for result in it {
             match result {
-                Ok(ent) => results.ents.push(ent),
-                Err(err) => results.errs.push(err),
+                Position::BeforeContent => {},
+                Position::Entry(ent) => results.ents.push(ent),
+                Position::Error(err) => results.errs.push(err),
+                Position::AfterContent => {},
             }
         }
         results

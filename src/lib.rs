@@ -123,6 +123,7 @@ pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 
-pub use crate::walk::{WalkDir, FilterEntry};
+pub use crate::walk::{WalkDir, IntoIter, FilterEntry};
+pub use crate::wd::{Position, ContentFilter, ContentOrder};
 
 

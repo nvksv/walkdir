@@ -41,7 +41,7 @@ enum ReadDir<E: source::SourceExt> {
     ///
     /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
     /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
-    Opened { rd: E::FsReadDir },
+    Opened { rd: E::FsReadDir, depth: usize },
 
     /// A closed handle.
     ///
@@ -59,17 +59,17 @@ impl<E: source::SourceExt> ReadDir<E> {
         }
     }
 
-    fn new( rd: wd::ResultInner<E::FsReadDir, E> ) -> Self {
+    fn new( rd: wd::ResultInner<E::FsReadDir, E>, depth: usize ) -> Self {
         match rd {
-            Ok(rd) => Self::Opened { rd },
+            Ok(rd) => Self::Opened { rd, depth },
             Err(err) => Self::Error( Some(err) ),
         }        
     }
 
     fn collect_all<T>(&mut self, process_fsdent: &impl (Fn(wd::ResultInner<DirEntry<E>, E>) -> Option<T>) ) -> Vec<T> {
         match *self {
-            ReadDir::Opened { ref mut rd } => {
-                let entries = rd.map(Self::process_next).map(process_fsdent).filter_map(|opt| opt).collect();
+            ReadDir::Opened { ref mut rd, depth } => {
+                let entries = rd.map(|fsdent| Self::process_next(fsdent, depth)).map(process_fsdent).filter_map(|opt| opt).collect();
                 *self = ReadDir::<E>::Closed;
                 entries
             },
@@ -99,10 +99,10 @@ impl<E: source::SourceExt> ReadDir<E> {
         }
     }
 
-    fn process_next( r_ent: io::Result<E::FsDirEntry> ) -> wd::ResultInner<DirEntry<E>, E> {
+    fn process_next( r_ent: io::Result<E::FsDirEntry>, depth: usize ) -> wd::ResultInner<DirEntry<E>, E> {
         match r_ent {
             Ok(ent) => {
-                DirEntry::<E>::from_entry( &ent )
+                DirEntry::<E>::from_entry( &ent, depth )
             },
             Err(err) => {
                 Err(wd::ErrorInner::from_io( err ))
@@ -120,8 +120,8 @@ impl<E: source::SourceExt> Iterator for ReadDir<E> {
             ReadDir::Once { ref mut item } => {
                 item.take().map(Ok)
             },
-            ReadDir::Opened { ref mut rd } => {
-                rd.next().map(Self::process_next)
+            ReadDir::Opened { ref mut rd, depth } => {
+                rd.next().map(|fsdent| Self::process_next(fsdent, depth))
             },
             ReadDir::Closed => {
                 None
@@ -234,9 +234,9 @@ impl<E: source::SourceExt> DirContent<E> {
     }
 
     /// New DirContent from FsReadDir
-    pub(crate) fn new( rd: wd::ResultInner<E::FsReadDir, E> ) -> Self {
+    pub(crate) fn new( rd: wd::ResultInner<E::FsReadDir, E>, depth: usize ) -> Self {
         Self {
-            rd: ReadDir::<E>::new( rd ),
+            rd: ReadDir::<E>::new( rd, depth ),
             content: vec![],
             current_pos: None,
         }
@@ -398,7 +398,7 @@ impl<E: source::SourceExt> DirState<E> {
     pub fn new( rd: wd::ResultInner<E::FsReadDir, E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, sorter: &mut Option<FnCmp<E>>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Self {
         let mut this = Self {
             depth,
-            content: DirContent::<E>::new(rd),
+            content: DirContent::<E>::new(rd, depth),
             pass: Self::get_initial_pass(opts_immut),
             position: Position::BeforeContent,
         };

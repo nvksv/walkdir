@@ -62,11 +62,16 @@ pub enum ContentOrder {
     DirsFirst
 }
 
+/// A position in dirs tree
 #[derive(Debug, PartialEq, Eq)]
 pub enum Position<T, E> {
+    /// Before content of current dir
     BeforeContent,
+    /// An entry
     Entry(T),
+    /// An error
     Error(E),
+    /// After content of current dir
     AfterContent,
 }
 

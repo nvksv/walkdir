@@ -38,8 +38,8 @@ macro_rules! rtry {
 }
 
 macro_rules! process_dent {
-    ($self:expr, $depth:expr) => {
-        ((|depth, opts_immut, root_device, states_path| move |dent| Self::process_dent(dent, depth, opts_immut, root_device, states_path))($depth, &$self.opts.immut, &$self.root_device, &$self.states_path))
+    ($self:expr) => {
+        ((|opts_immut, root_device, states_path| move |dent| Self::process_dent(dent, opts_immut, root_device, states_path))(&$self.opts.immut, &$self.root_device, &$self.states_path))
     };
 }
 
@@ -69,7 +69,7 @@ pub struct WalkDirOptions<E: source::SourceExt> {
 impl<E: source::SourceExt> Default for WalkDirOptions<E> { 
     fn default() -> Self {
         Self {
-            immut: WalkDirOptionsImmut::<E> {
+            immut: WalkDirOptionsImmut {
                 same_file_system: false,
                 follow_links: false,
                 max_open: 10,
@@ -521,7 +521,7 @@ pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
 }
 
 impl<E: source::SourceExt> IntoIter<E> {
-    pub fn new( opts: WalkDirOptions<E>, root: E::PathBuf, ext: E ) -> Self {
+    fn new( opts: WalkDirOptions<E>, root: E::PathBuf, ext: E ) -> Self {
         IntoIter {
             opts: opts,
             start: Some(root),
@@ -535,36 +535,27 @@ impl<E: source::SourceExt> IntoIter<E> {
         }
     }
 
-    // fn make_process_dent(&self) -> impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) {
-    //     let depth = self.depth;
-    //     let opts_immut = &self.opts.immut;
-    //     let root_device = &self.root_device;
-    //     let states_path = &self.states_path;
-
-    //     |dent| Self::process_dent(dent, depth, opts_immut, root_device, states_path)
-    // }
-
     // Follow symlinks and check same_file_system. Also determine is_dir flag.
     // - Some(Ok((dent, is_dir))) -- normal entry to yielding
     // - Some(Err(_)) -- some error occured
     // - None -- entry must be ignored
-    fn process_dent(dent: DirEntry<E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>, states_path: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>> {
+    fn process_dent(raw_dent: DirEntry<E>, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>, states_path: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>> {
         
-        let dent2 = if opts_immut.follow_links && dent.file_type().is_symlink() {
-            ortry!(Self::follow(dent, states_path))
+        let dent = if opts_immut.follow_links && raw_dent.file_type().is_symlink() {
+            ortry!(Self::follow(raw_dent, states_path))
         } else {
-            dent
+            raw_dent
         };
 
-        let is_normal_dir = !dent2.file_type().is_symlink() && dent2.is_dir();
+        let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
 
         if is_normal_dir {
-            if opts_immut.same_file_system && depth > 0 {
-                if ! ortry!(Self::is_same_file_system(root_device, &dent2)) {
+            if opts_immut.same_file_system && dent.depth() > 0 {
+                if ! ortry!(Self::is_same_file_system(root_device, &dent)) {
                     return None;
                 };
             };
-        } else if depth == 0 && dent2.file_type().is_symlink() {
+        } else if dent.depth() == 0 && dent.file_type().is_symlink() {
             // As a special case, if we are processing a root entry, then we
             // always follow it even if it's a symlink and follow_links is
             // false. We are careful to not let this change the semantics of
@@ -572,15 +563,15 @@ impl<E: source::SourceExt> IntoIter<E> {
             // the follow_links setting. When it's disabled, it should report
             // itself as a symlink. When it's enabled, it should always report
             // itself as the target.
-            let md = ortry!(E::metadata(dent2.path()).map_err(|err| {
-                ErrorInner::<E>::from_path(dent2.path().to_path_buf(), err)
+            let md = ortry!(E::metadata(dent.path()).map_err(|err| {
+                ErrorInner::<E>::from_path(dent.path().to_path_buf(), err)
             }));
             if ! md.file_type().is_dir() {
                 return None;
             };
         };
 
-        Some(Ok(ProcessedDirEntry{ dent: dent2, is_dir: is_normal_dir }))
+        Some(Ok(ProcessedDirEntry{ dent: dent, is_dir: is_normal_dir }))
     }
 
     fn init(&mut self, start: E::PathBuf) -> wd::ResultInner<(), E> {
@@ -589,9 +580,9 @@ impl<E: source::SourceExt> IntoIter<E> {
                 .map_err(|e| ErrorInner::<E>::from_path(start.clone(), e));
             self.root_device = Some(rtry!(result));
         }
-        let dent = rtry!(DirEntry::<E>::from_path(start, false).map_err(wd::Error::into_inner));
+        let dent = rtry!(DirEntry::<E>::from_path(start, 0, false).map_err(wd::Error::into_inner));
 
-        self.push_dir(dent, 0, true)?;
+        self.push_dir(dent, true)?;
 
         Ok(())
     }
@@ -637,27 +628,22 @@ impl<E: source::SourceExt> IntoIter<E> {
     //     }
     // }
 
-    fn push_dir(&mut self, dent: DirEntry<E>, depth: usize, is_root: bool) -> wd::ResultInner<(), E> {
+    fn push_dir(&mut self, dent: DirEntry<E>, is_root: bool) -> wd::ResultInner<(), E> {
 
         // Make room for another open file descriptor if we've hit the max.
         let free = self.states.len().checked_sub(self.oldest_opened).unwrap();
         if free == self.opts.immut.max_open {
-            // let opts_immut = &self.opts.immut;
-            // let root_device = &self.root_device;
-            // let states_path = &self.states_path;
-            // let process_dent = & |dent| Self::process_dent(dent, depth, opts_immut, root_device, states_path);
-//            let process_dent = ((|depth, opts_immut, root_device, states_path| move |dent| Self::process_dent(dent, depth, opts_immut, root_device, states_path))(depth, &self.opts.immut, &self.root_device, &self.states_path));
             let state = self.states.get_mut(self.oldest_opened).unwrap();
-            
-            state.load_all(&self.opts.immut, &process_dent!(self, depth) );
+            state.load_all(&self.opts.immut, &process_dent!(self) );
         }
 
         let state = if is_root { 
-            DirState::<E>::new_once( dent.clone(), depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, depth) ) 
+            DirState::<E>::new_once( dent.clone(), dent.depth(), &self.opts.immut, &mut self.opts.sorter, &process_dent!(self) ) 
         } else {
             // Open a handle to reading the directory's entries.
+            let new_depth = dent.depth() + 1;
             let rd = E::read_dir(&dent, dent.path()).map_err(|err| ErrorInner::<E>::from_path(dent.path().to_path_buf(), err));
-            DirState::<E>::new( rd, depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, depth) )
+            DirState::<E>::new( rd, new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self) )
         };
 
         if self.opts.immut.follow_links {
@@ -751,13 +737,14 @@ impl<E: source::SourceExt> IntoIter<E> {
         }
     }
 
+    /// Gets content of current dir
     pub fn get_current_dir_content(&mut self, filter: ContentFilter) -> Option<Vec<DirEntry<E>>> {
         let cur_state = match self.states.last_mut() {
             Some(state) => state,
             None => return None,
         };
 
-        let content = cur_state.clone_all_content(filter, &self.opts.immut, &process_dent!(self, cur_state.depth()) );
+        let content = cur_state.clone_all_content(filter, &self.opts.immut, &process_dent!(self) );
         
         Some(content)
     }
@@ -790,7 +777,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                 Position::BeforeContent => {
                     assert!( self.transition_state == TransitionState::None );
                     
-                    cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_state.depth()) );
+                    cur_state.next_position( &self.opts.immut, &process_dent!(self) );
                     return Some(Position::BeforeContent);
                 }, 
                 Position::Entry(ProcessedDirEntry{dent, is_dir}) => {
@@ -798,16 +785,15 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                         match self.transition_state {
                             TransitionState::AfterPopUp => {
                                 self.transition_state = TransitionState::None;
-                                cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_state.depth()) );
+                                cur_state.next_position( &self.opts.immut, &process_dent!(self) );
                                 if self.opts.immut.contents_first {
                                     return Some(Position::Entry(dent));
                                 };
                             },
                             TransitionState::BeforePushDown => {
                                 self.transition_state = TransitionState::None;
-                                let new_depth = cur_state.depth()+1;
-                                if let Err(e) = self.push_dir(dent.clone(), new_depth, false) {
-                                    return Some(Position::Error(wd::Error::from_inner(e, new_depth)));
+                                if let Err(e) = self.push_dir(dent.clone(), false) {
+                                    return Some(Position::Error(wd::Error::from_inner(e, dent.depth())));
                                 };
                             },
                             TransitionState::None => {},
@@ -822,14 +808,14 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                     } else {
                         assert!( self.transition_state == TransitionState::None );
 
-                        cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_state.depth()) );
+                        cur_state.next_position( &self.opts.immut, &process_dent!(self) );
                         return Some(Position::Entry(dent));
                     }
                 },
                 Position::Error(e) => {
                     assert!( self.transition_state == TransitionState::None );
 
-                    cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_state.depth()) );
+                    cur_state.next_position( &self.opts.immut, &process_dent!(self) );
                     return Some(Position::Error(e));
                 },
                 Position::AfterContent => {
@@ -939,7 +925,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
     where
-        P: FnMut(&DirEntry<E>) -> bool,
+        P: FnMut(&Position<DirEntry<E>, Error<E>>) -> bool,
     {
         FilterEntry { inner: self, predicate: predicate }
     }
@@ -963,18 +949,19 @@ impl<E: source::SourceExt> IntoIter<E> {
     // }
 
 
-    fn follow(dent: DirEntry<E>, states_path: &Vec<Ancestor<E>>) -> wd::ResultInner<DirEntry<E>, E> {
-        let dent2 = DirEntry::<E>::from_path(
-            dent.path().to_path_buf(),
+    fn follow(raw_dent: DirEntry<E>, states_path: &Vec<Ancestor<E>>) -> wd::ResultInner<DirEntry<E>, E> {
+        let dent = DirEntry::<E>::from_path(
+            raw_dent.path().to_path_buf(),
+            raw_dent.depth(),
             true,
         ).map_err(wd::Error::into_inner)?;
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
-        if dent2.is_dir() {
-            Self::check_loop(dent2.path(), states_path)?;
+        if dent.is_dir() {
+            Self::check_loop(dent.path(), states_path)?;
         }
-        Ok(dent2)
+        Ok(dent)
     }
 
     fn check_loop<P: AsRef<E::Path>>(child: P, states_path: &Vec<Ancestor<E>>) -> wd::ResultInner<(), E> {

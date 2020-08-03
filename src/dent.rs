@@ -42,8 +42,8 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// Is set when this entry was created from a symbolic link and the user
     /// expects the iterator to follow symbolic links.
     follow_link: bool,
-    // /// The depth at which this entry was generated relative to the root.
-    // depth: usize,
+    /// The depth at which this entry was generated relative to the root.
+    depth: usize,
     /// The source-specific part.
     pub(crate) ext: E::DirEntryExt,
 }
@@ -146,14 +146,14 @@ impl<E: source::SourceExt> DirEntry<E> {
         E::get_file_name(&self.path)
     }
 
-    // /// Returns the depth at which this entry was created relative to the root.
-    // ///
-    // /// The smallest depth is `0` and always corresponds to the path given
-    // /// to the `new` function on `WalkDir`. Its direct descendents have depth
-    // /// `1`, and their descendents have depth `2`, and so on.
-    // pub fn depth(&self) -> usize {
-    //     self.depth
-    // }
+    /// Returns the depth at which this entry was created relative to the root.
+    ///
+    /// The smallest depth is `0` and always corresponds to the path given
+    /// to the `new` function on `WalkDir`. Its direct descendents have depth
+    /// `1`, and their descendents have depth `2`, and so on.
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
 
     // /// Sets the depth at which this entry was created relative to the root.
     // pub(crate) fn set_depth(mut self, depth: usize) -> Self {
@@ -172,50 +172,52 @@ impl<E: source::SourceExt> DirEntry<E> {
 
     pub(crate) fn from_entry(
         ent: &E::FsDirEntry,
-    ) -> wd::ResultInner<DirEntry<E>, E> {
+        depth: usize,
+    ) -> wd::ResultInner<Self, E> {
         let path = ent.path();
         let ty = ent
             .file_type()
             .map_err(|err| ErrorInner::<E>::from_path(path.clone(), err))?;
         let ext = E::dent_from_fsentry(ent)
             .map_err(|err| ErrorInner::<E>::from_path(path.clone(), err))?;
-        Ok(DirEntry {
-            path: path,
-            ty: ty,
+        Ok(Self {
+            path,
+            ty,
             follow_link: false,
-//            depth: 0,
+            depth,
             ext,
         })
     }
 
     pub(crate) fn from_path(
         pb: E::PathBuf,
-        follow: bool,
-    ) -> wd::Result<DirEntry<E>, E> {
-        let md = if follow {
+        depth: usize,
+        follow_link: bool,
+    ) -> wd::Result<Self, E> {
+        let md = if follow_link {
             E::metadata(&pb)
-                .map_err(|err| wd::Error::from_inner(ErrorInner::<E>::from_path(pb.clone(), err), 0))?
+                .map_err(|err| wd::Error::from_inner(ErrorInner::<E>::from_path(pb.clone(), err), depth))?
         } else {
             E::symlink_metadata(&pb)
-                .map_err(|err| wd::Error::from_inner(ErrorInner::<E>::from_path(pb.clone(), err), 0))?
+                .map_err(|err| wd::Error::from_inner(ErrorInner::<E>::from_path(pb.clone(), err), depth))?
         };
-        Ok(DirEntry {
+        Ok(Self {
             path: pb,
             ty: md.file_type(),
-            follow_link: follow,
-//            depth: 0,
+            follow_link,
+            depth,
             ext: E::dent_from_metadata(md),
         })
     }
 }
 
 impl<E: source::SourceExt> Clone for DirEntry<E> {
-    fn clone(&self) -> DirEntry<E> {
-        DirEntry {
+    fn clone(&self) -> Self {
+        Self {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
-//            depth: self.depth,
+            depth: self.depth,
             ext: self.ext.clone(),
         }
     }
@@ -223,7 +225,7 @@ impl<E: source::SourceExt> Clone for DirEntry<E> {
 
 impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DirEntry(path={:?}, ext={:?})", self.path, self.ext)
+        write!(f, "DirEntry(path={:?}, depth={:?}, ext={:?})", self.path, self.depth, self.ext)
     }
 }
 

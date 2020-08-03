@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::tests::util::Dir;
-use crate::WalkDir;
+use crate::{WalkDir, Position};
 
 /// Check for defaulted type parameter bug
 /// See https://github.com/rust-lang/rust/issues/27336
@@ -886,7 +886,11 @@ fn skip_current_dir() {
     let mut paths = vec![];
     let mut it = <WalkDir>::new(dir.path()).into_iter();
     while let Some(result) = it.next() {
-        let ent = result.unwrap();
+        let ent = match result {
+            Position::Entry(ent) => ent,
+            Position::AfterContent | Position::BeforeContent => {continue},
+            _ => panic!(),
+        };
         paths.push(ent.path().to_path_buf());
         if ent.file_name() == "bar" {
             it.skip_current_dir();
@@ -911,7 +915,7 @@ fn filter_entry() {
 
     let wd = <WalkDir>::new(dir.path())
         .into_iter()
-        .filter_entry(|ent| ent.file_name() != "baz");
+        .filter_entry(|ent| if let Position::Entry(dent) = ent {dent.file_name() != "baz"} else {false});
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
