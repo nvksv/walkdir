@@ -79,7 +79,7 @@ pub trait SourceFsReadDir<E: SourceExt>:
 }
 
 /// Trait for source-specific extensions
-pub trait SourceExt: fmt::Debug + Clone + Send + Sync {
+pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     /// Extension for WalkDirOptions
     type OptionsExt: fmt::Debug + Default;
     /// Extension for IntoIter

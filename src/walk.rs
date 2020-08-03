@@ -39,7 +39,7 @@ macro_rules! rtry {
 
 macro_rules! process_dent {
     ($self:expr, $depth:expr) => {
-        & |dent| Self::process_dent(dent, $depth, &$self.opts, &$self.root_device, &$self.states_path)
+        ((|depth, opts_immut, root_device, states_path| move |dent| Self::process_dent(dent, depth, opts_immut, root_device, states_path))($depth, &$self.opts.immut, &$self.root_device, &$self.states_path))
     };
 }
 
@@ -47,13 +47,12 @@ macro_rules! process_dent {
 /////////////////////////////////////////////////////////////////////////
 //// WalkDirOptions
 
-pub struct WalkDirOptions<E: source::SourceExt> {
+pub struct WalkDirOptionsImmut<E: source::SourceExt> {
     pub same_file_system: bool,
     pub follow_links: bool,
     pub max_open: usize,
     pub min_depth: usize,
     pub max_depth: usize,
-    pub sorter: Option<FnCmp<E>>,
     pub contents_first: bool,
     pub content_filter: ContentFilter,
     pub content_order: ContentOrder,
@@ -62,19 +61,26 @@ pub struct WalkDirOptions<E: source::SourceExt> {
     ext: E::OptionsExt,
 }
 
+pub struct WalkDirOptions<E: source::SourceExt> {
+    pub immut: WalkDirOptionsImmut<E>,
+    pub sorter: Option<FnCmp<E>>,
+}
+
 impl<E: source::SourceExt> Default for WalkDirOptions<E> { 
     fn default() -> Self {
         Self {
-            same_file_system: false,
-            follow_links: false,
-            max_open: 10,
-            min_depth: 0,
-            max_depth: ::std::usize::MAX,
+            immut: WalkDirOptionsImmut::<E> {
+                same_file_system: false,
+                follow_links: false,
+                max_open: 10,
+                min_depth: 0,
+                max_depth: ::std::usize::MAX,
+                contents_first: false,
+                content_filter: ContentFilter::None,
+                content_order: ContentOrder::None,
+                ext: E::OptionsExt::default(),
+            },
             sorter: None,
-            contents_first: false,
-            content_filter: ContentFilter::None,
-            content_order: ContentOrder::None,
-            ext: E::OptionsExt::default(),
         }
     }
 }
@@ -91,16 +97,16 @@ impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
             "None"
         };
         f.debug_struct("WalkDirOptions")
-            .field("same_file_system", &self.same_file_system)
-            .field("follow_links", &self.follow_links)
-            .field("max_open", &self.max_open)
-            .field("min_depth", &self.min_depth)
-            .field("max_depth", &self.max_depth)
+            .field("same_file_system", &self.immut.same_file_system)
+            .field("follow_links", &self.immut.follow_links)
+            .field("max_open", &self.immut.max_open)
+            .field("min_depth", &self.immut.min_depth)
+            .field("max_depth", &self.immut.max_depth)
+            .field("contents_first", &self.immut.contents_first)
+            .field("content_filter", &self.immut.content_filter)
+            .field("content_order", &self.immut.content_order)
             .field("sorter", &sorter_str)
-            .field("contents_first", &self.contents_first)
-            .field("content_filter", &self.content_filter)
-            .field("content_order", &self.content_order)
-            .field("ext", &self.ext)
+            .field("ext", &self.immut.ext)
             .finish()
     }
 }
@@ -218,7 +224,7 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// option is used on an unsupported platform, then directory traversal
     /// will immediately return an error and will not yield any entries.
     pub fn same_file_system(mut self, yes: bool) -> Self {
-        self.opts.same_file_system = yes;
+        self.opts.immut.same_file_system = yes;
         self
     }
 
@@ -234,7 +240,7 @@ impl<E: source::SourceExt> WalkDir<E> {
     ///
     /// [`DirEntry`]: struct.DirEntry.html
     pub fn follow_links(mut self, yes: bool) -> Self {
-        self.opts.follow_links = yes;
+        self.opts.immut.follow_links = yes;
         self
     }
 
@@ -244,9 +250,9 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// to the `new` function on this type. Its direct descendents have depth
     /// `1`, and their descendents have depth `2`, and so on.
     pub fn min_depth(mut self, depth: usize) -> Self {
-        self.opts.min_depth = depth;
-        if self.opts.min_depth > self.opts.max_depth {
-            self.opts.min_depth = self.opts.max_depth;
+        self.opts.immut.min_depth = depth;
+        if self.opts.immut.min_depth > self.opts.immut.max_depth {
+            self.opts.immut.min_depth = self.opts.immut.max_depth;
         }
         self
     }
@@ -261,9 +267,9 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// it will actually avoid descending into directories when the depth is
     /// exceeded.
     pub fn max_depth(mut self, depth: usize) -> Self {
-        self.opts.max_depth = depth;
-        if self.opts.max_depth < self.opts.min_depth {
-            self.opts.max_depth = self.opts.min_depth;
+        self.opts.immut.max_depth = depth;
+        if self.opts.immut.max_depth < self.opts.immut.min_depth {
+            self.opts.immut.max_depth = self.opts.immut.min_depth;
         }
         self
     }
@@ -297,7 +303,7 @@ impl<E: source::SourceExt> WalkDir<E> {
         if n == 0 {
             n = 1;
         }
-        self.opts.max_open = n;
+        self.opts.immut.max_open = n;
         self
     }
 
@@ -383,19 +389,19 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// // foo
     /// ```
     pub fn contents_first(mut self, yes: bool) -> Self {
-        self.opts.contents_first = yes;
+        self.opts.immut.contents_first = yes;
         self
     }
 
     /// A variants for filtering content
     pub fn content_filter(mut self, filter: ContentFilter) -> Self {
-        self.opts.content_filter = filter;
+        self.opts.immut.content_filter = filter;
         self
     }
 
     /// A variants for filtering content
     pub fn content_order(mut self, order: ContentOrder) -> Self {
-        self.opts.content_order = order;
+        self.opts.immut.content_order = order;
         self
     }
 
@@ -529,13 +535,22 @@ impl<E: source::SourceExt> IntoIter<E> {
         }
     }
 
+    // fn make_process_dent(&self) -> impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) {
+    //     let depth = self.depth;
+    //     let opts_immut = &self.opts.immut;
+    //     let root_device = &self.root_device;
+    //     let states_path = &self.states_path;
+
+    //     |dent| Self::process_dent(dent, depth, opts_immut, root_device, states_path)
+    // }
+
     // Follow symlinks and check same_file_system. Also determine is_dir flag.
     // - Some(Ok((dent, is_dir))) -- normal entry to yielding
     // - Some(Err(_)) -- some error occured
     // - None -- entry must be ignored
-    fn process_dent(dent: DirEntry<E>, depth: usize, opts: &WalkDirOptions<E>, root_device: &Option<DeviceNum>, states_path: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>> {
+    fn process_dent(dent: DirEntry<E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>, states_path: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>> {
         
-        let dent2 = if opts.follow_links && dent.file_type().is_symlink() {
+        let dent2 = if opts_immut.follow_links && dent.file_type().is_symlink() {
             ortry!(Self::follow(dent, states_path))
         } else {
             dent
@@ -544,7 +559,7 @@ impl<E: source::SourceExt> IntoIter<E> {
         let is_normal_dir = !dent2.file_type().is_symlink() && dent2.is_dir();
 
         if is_normal_dir {
-            if opts.same_file_system && depth > 0 {
+            if opts_immut.same_file_system && depth > 0 {
                 if ! ortry!(Self::is_same_file_system(root_device, &dent2)) {
                     return None;
                 };
@@ -569,7 +584,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     }
 
     fn init(&mut self, start: E::PathBuf) -> wd::ResultInner<(), E> {
-        if self.opts.same_file_system {
+        if self.opts.immut.same_file_system {
             let result = E::device_num(&start)
                 .map_err(|e| ErrorInner::<E>::from_path(start.clone(), e));
             self.root_device = Some(rtry!(result));
@@ -626,22 +641,26 @@ impl<E: source::SourceExt> IntoIter<E> {
 
         // Make room for another open file descriptor if we've hit the max.
         let free = self.states.len().checked_sub(self.oldest_opened).unwrap();
-        if free == self.opts.max_open {
+        if free == self.opts.immut.max_open {
+            // let opts_immut = &self.opts.immut;
+            // let root_device = &self.root_device;
+            // let states_path = &self.states_path;
+            // let process_dent = & |dent| Self::process_dent(dent, depth, opts_immut, root_device, states_path);
+//            let process_dent = ((|depth, opts_immut, root_device, states_path| move |dent| Self::process_dent(dent, depth, opts_immut, root_device, states_path))(depth, &self.opts.immut, &self.root_device, &self.states_path));
             let state = self.states.get_mut(self.oldest_opened).unwrap();
             
-            let process_dent = process_dent!(self, depth);
-            DirState::load_all(&mut state.rd, &mut state.content, &self.opts, self.depth, process_dent );
+            state.load_all(&self.opts.immut, &process_dent!(self, depth) );
         }
 
         let state = if is_root { 
-            DirState::<E>::new_once( dent.clone(), depth, &mut self.opts, process_dent!(self, depth) ) 
+            DirState::<E>::new_once( dent.clone(), depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, depth) ) 
         } else {
             // Open a handle to reading the directory's entries.
             let rd = E::read_dir(&dent, dent.path()).map_err(|err| ErrorInner::<E>::from_path(dent.path().to_path_buf(), err));
-            DirState::<E>::new( rd, depth, &mut self.opts, process_dent!(self, depth) )
+            DirState::<E>::new( rd, depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, depth) )
         };
 
-        if self.opts.follow_links {
+        if self.opts.immut.follow_links {
             let ancestor = Ancestor::new(&dent)
                 .map_err(|err| ErrorInner::<E>::from_io(err))?;
             self.states_path.push(ancestor);
@@ -660,7 +679,7 @@ impl<E: source::SourceExt> IntoIter<E> {
         // We could move the close of the stream above into this if-body, but
         // then we would have more than the maximum number of file descriptors
         // open at a particular point in time.
-        if free == self.opts.max_open {
+        if free == self.opts.immut.max_open {
             // Unwrap is safe here because self.oldest_opened is guaranteed to
             // never be greater than `self.stack_list.len()`, which implies
             // that the subtraction won't underflow and that adding 1 will
@@ -672,7 +691,7 @@ impl<E: source::SourceExt> IntoIter<E> {
 
     fn pop_dir(&mut self) {
         self.states.pop().expect("BUG: cannot pop from empty stack");
-        if self.opts.follow_links {
+        if self.opts.immut.follow_links {
             self.states_path.pop().expect("BUG: list/path stacks out of sync");
         }
         // If everything in the stack is already closed, then there is
@@ -738,7 +757,7 @@ impl<E: source::SourceExt> IntoIter<E> {
             None => return None,
         };
 
-        let content = cur_state.clone_all_content(filter, &self.opts, process_dent!(self, cur_state.depth()) );
+        let content = cur_state.clone_all_content(filter, &self.opts.immut, &process_dent!(self, cur_state.depth()) );
         
         Some(content)
     }
@@ -771,7 +790,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                 Position::BeforeContent => {
                     assert!( self.transition_state == TransitionState::None );
                     
-                    cur_state.next_position( &self.opts, process_dent!(self, cur_state.depth()) );
+                    cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_state.depth()) );
                     return Some(Position::BeforeContent);
                 }, 
                 Position::Entry(ProcessedDirEntry{dent, is_dir}) => {
@@ -779,35 +798,38 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                         match self.transition_state {
                             TransitionState::AfterPopUp => {
                                 self.transition_state = TransitionState::None;
-                                cur_state.next_position( &self.opts, process_dent!(self, cur_state.depth()) );
-                                if self.opts.contents_first {
+                                cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_state.depth()) );
+                                if self.opts.immut.contents_first {
                                     return Some(Position::Entry(dent));
                                 };
                             },
                             TransitionState::BeforePushDown => {
                                 self.transition_state = TransitionState::None;
-                                self.push_dir(dent.clone(), cur_state.depth()+1, false);
+                                let new_depth = cur_state.depth()+1;
+                                if let Err(e) = self.push_dir(dent.clone(), new_depth, false) {
+                                    return Some(Position::Error(wd::Error::from_inner(e, new_depth)));
+                                };
                             },
                             TransitionState::None => {},
                             _ => unreachable!(),
                         };
 
-                        self.transition_state == TransitionState::BeforePushDown;
+                        self.transition_state = TransitionState::BeforePushDown;
 
-                        if !self.opts.contents_first {
+                        if !self.opts.immut.contents_first {
                             return Some(Position::Entry(dent));
                         };
                     } else {
                         assert!( self.transition_state == TransitionState::None );
 
-                        cur_state.next_position( &self.opts, process_dent!(self, cur_state.depth()) );
+                        cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_state.depth()) );
                         return Some(Position::Entry(dent));
                     }
                 },
                 Position::Error(e) => {
                     assert!( self.transition_state == TransitionState::None );
 
-                    cur_state.next_position( &self.opts, process_dent!(self, cur_state.depth()) );
+                    cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_state.depth()) );
                     return Some(Position::Error(e));
                 },
                 Position::AfterContent => {
@@ -979,7 +1001,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     }
 
     fn skippable(&self) -> bool {
-        self.depth < self.opts.min_depth || self.depth > self.opts.max_depth
+        self.depth < self.opts.immut.min_depth || self.depth > self.opts.immut.max_depth
     }
 }
 

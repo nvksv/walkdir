@@ -9,7 +9,7 @@ use crate::dent::DirEntry;
 use crate::dent::DirEntryExt;
 use crate::source;
 //use crate::source::{SourceFsFileType, SourceFsMetadata, SourcePath};
-use crate::walk::WalkDirOptions;
+use crate::walk::WalkDirOptionsImmut;
 
 
 
@@ -151,7 +151,7 @@ pub struct ProcessedDirEntry<E: source::SourceExt> {
 //// DirEntryRecord
 
 #[derive(Debug)]
-struct DirEntryRecord<E: source::SourceExt> {
+pub(crate) struct DirEntryRecord<E: source::SourceExt> {
     /// Value from ReadDir
     dent: wd::ResultInner<DirEntry<E>, E>,
     /// This entry is a dir and will be walked recursive
@@ -163,7 +163,7 @@ struct DirEntryRecord<E: source::SourceExt> {
 }
 
 impl<E: source::SourceExt> DirEntryRecord<E> {
-    fn new( rdr: wd::ResultInner<DirEntry<E>, E>, opts: &WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Option<Self> {
+    fn new( rdr: wd::ResultInner<DirEntry<E>, E>, opts_immut: &WalkDirOptionsImmut<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Option<Self> {
         let rdr_flatten = match rdr {
             Ok(raw_dent) => match process_dent(raw_dent) {
                 Some(pdent) => pdent,
@@ -174,13 +174,13 @@ impl<E: source::SourceExt> DirEntryRecord<E> {
 
         let this = match rdr_flatten {
             Ok(ProcessedDirEntry{ dent, is_dir }) => {
-                let first_pass = match opts.content_order {
+                let first_pass = match opts_immut.content_order {
                     ContentOrder::None => false,
                     ContentOrder::DirsFirst => is_dir,
                     ContentOrder::FilesFirst => !is_dir,
                 };
 
-                let hidden = match opts.content_filter {
+                let hidden = match opts_immut.content_filter {
                     ContentFilter::None => false,
                     ContentFilter::DirsOnly => !is_dir,
                     ContentFilter::FilesOnly => is_dir,
@@ -219,41 +219,45 @@ pub struct DirContent<E: source::SourceExt> {
     rd: ReadDir<E>,
     /// A list of already consumed DirEntries
     content: Vec<DirEntryRecord<E>>,
+    /// Count of consumed entries = position of unconsumed in content
+    current_pos: Option<usize>,
 }
 
 impl<E: source::SourceExt> DirContent<E> {
     /// New DirContent from alone DirEntry
-    pub fn new_once( raw_dent: DirEntry<E> ) -> Self {
-        Self{
+    pub(crate) fn new_once( raw_dent: DirEntry<E> ) -> Self {
+        Self {
             rd: ReadDir::<E>::new_once( raw_dent ),
             content: vec![],
+            current_pos: None,
         }
     }
 
     /// New DirContent from FsReadDir
-    pub fn new( rd: wd::ResultInner<E::FsReadDir, E> ) -> Self {
-        Self{
+    pub(crate) fn new( rd: wd::ResultInner<E::FsReadDir, E> ) -> Self {
+        Self {
             rd: ReadDir::<E>::new( rd ),
             content: vec![],
+            current_pos: None,
         }
     }
 
     /// Load all remaining DirEntryRecord into tail of self.content.
     /// Doesn't change position.
-    pub(crate) fn load_all(rd: &mut ReadDir<E>, content: &mut Vec<DirEntryRecord<E>>, opts: &WalkDirOptions<E>, depth: usize, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) {
-        let mut collected = rd.collect_all(& |r_ent| Self::new_rec( r_ent, opts, depth, process_dent ));
+    pub(crate) fn load_all(&mut self, opts_immut: &WalkDirOptionsImmut<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) {
+        let mut collected = self.rd.collect_all(& |r_ent| Self::new_rec( r_ent, opts_immut, process_dent ));
 
-        if content.is_empty() {
-            *content = collected;
+        if self.content.is_empty() {
+            self.content = collected;
         } else {
-            content.append(&mut collected);
+            self.content.append(&mut collected);
         }
     }
 
     /// Makes new DirEntryRecord from processed Result<DirEntry> or rejects it. 
     /// Doesn't change position.
-    fn new_rec(r_ent: wd::ResultInner<DirEntry<E>, E>, opts: &WalkDirOptions<E>, depth: usize, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Option<DirEntryRecord<E>> {
-        let rec = DirEntryRecord::<E>::new( r_ent, opts, process_dent )?;
+    fn new_rec(r_ent: wd::ResultInner<DirEntry<E>, E>, opts_immut: &WalkDirOptionsImmut<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Option<DirEntryRecord<E>> {
+        let rec = DirEntryRecord::<E>::new( r_ent, opts_immut, process_dent )?;
 
         // if let Ok(ref mut dent) = rec.dent {
         //     dent.set_depth_mut( depth );
@@ -262,98 +266,9 @@ impl<E: source::SourceExt> DirContent<E> {
         Some(rec)
     }
 
-
-}
-
-
-
-/////////////////////////////////////////////////////////////////////////
-//// DirState
-
-#[derive(Debug, PartialEq, Eq)]
-enum DirPass {
-    Entire,
-    First,
-    Second
-}
-
-#[derive(Debug)]
-pub struct DirState<E: source::SourceExt> {
-    /// The depth of this dir
-    depth: usize,
-    /// Content of this dir
-    rd: DirContent<E>,
-    /// Count of consumed entries = position of unconsumed in content
-    current_pos: Option<usize>,
-    /// Current pass
-    pass: DirPass,
-    /// Current position
-    position: Position<(), ()>,
-}
-
-impl<E: source::SourceExt> DirState<E> {
-    fn get_initial_pass( opts: &WalkDirOptions<E> ) -> DirPass {
-        if opts.content_order == ContentOrder::None {
-            DirPass::Entire
-        } else {
-            DirPass::First
-        }
-    }
-
-    fn init(&mut self, opts: &mut WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) {
-
-        if let Some(_) = &opts.sorter {
-            DirState::load_all(&mut self.rd, &mut self.content, opts, self.depth, process_dent);
-
-            let cmp = if let Some(ref mut cmp) = &mut opts.sorter {cmp} else {unreachable!()};
-            self.sort_content_and_rewind(cmp);
-        }
-
-    }
-
-    fn new_internal( rd: ReadDir<E>, depth: usize, opts: &mut WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Self {
-        let mut this = Self {
-            depth,
-            rd,
-            content: vec![],
-            current_pos: None,
-            pass: Self::get_initial_pass(opts),
-            position: Position::BeforeContent,
-        };
-        Self::init(&mut this, opts, process_dent);
-        this
-    }
-
-    /// New DirState from alone DirEntry
-    pub fn new_once( dent: DirEntry<E>, depth: usize, opts: &mut WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Self {
-        Self::new_internal( ReadDir::<E>::new_once( dent ), depth, opts, process_dent )
-    }
-
-    /// New DirState from FsReadDir
-    pub fn new( rd: wd::ResultInner<E::FsReadDir, E>, depth: usize, opts: &mut WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Self {
-        Self::new_internal( ReadDir::<E>::new( rd ), depth, opts, process_dent )
-    }
-
-    /// Load all remaining DirEntryRecord into tail of self.content.
-    /// Doesn't change position.
-    pub(crate) fn load_all(rd: &mut ReadDir<E>, content: &mut Vec<DirEntryRecord<E>>, opts: &WalkDirOptions<E>, depth: usize, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) {
-        let mut collected = rd.collect_all(& |r_ent| Self::new_rec( r_ent, opts, depth, process_dent ));
-
-        if content.is_empty() {
-            *content = collected;
-        } else {
-            content.append(&mut collected);
-        }
-    }
-
-    /// Rewind current position: now we stand before beginning.
-    fn rewind_rec(&mut self) {
-        self.current_pos = None;
-    }
-
     /// Shifts to next record (and loads it when necessary) -- without any passes, content filters and so on.
     /// Updates current position on success.
-    fn get_next_rec(&mut self, opts: &WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) -> Option<(bool, bool)> {
+    pub(crate) fn get_next_rec(&mut self, opts_immut: &WalkDirOptionsImmut<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) -> Option<(bool, bool)> {
         loop {
             // Check for already loaded entry
             let next_pos = if let Some(pos) = self.current_pos {pos + 1} else {0};
@@ -363,7 +278,7 @@ impl<E: source::SourceExt> DirState<E> {
             }
 
             if let Some(r_ent) = self.rd.next() {
-                let rec = match Self::new_rec(r_ent, opts, self.depth, process_dent) {
+                let rec = match Self::new_rec(r_ent, opts_immut, process_dent) {
                     Some(rec) => rec,
                     None => continue,
                 };
@@ -382,9 +297,14 @@ impl<E: source::SourceExt> DirState<E> {
         None
     }
 
+    /// Rewind current position: now we stand before beginning.
+    pub(crate) fn rewind(&mut self) {
+        self.current_pos = None;
+    }
+
     /// Gets record at current position
     /// Doesn't change position.
-    fn get_current_rec(&mut self) -> Option<&mut DirEntryRecord<E>> {
+    pub(crate) fn get_current_rec(&mut self) -> Option<&mut DirEntryRecord<E>> {
         match self.current_pos {
             Some(pos) => self.content.get_mut(pos),
             None => None,
@@ -406,11 +326,97 @@ impl<E: source::SourceExt> DirState<E> {
         self.current_pos = None;
     }
 
+    /// Sorts all loaded content.
+    /// Changes current position.
+    pub(crate) fn load_all_and_sort(&mut self, opts_immut: &WalkDirOptionsImmut<E>, cmp: &mut FnCmp<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) {
+        self.load_all( opts_immut, process_dent );
+        self.sort_content_and_rewind( cmp );
+    }
+
+    pub(crate) fn iter_content<'s, F, T>(&'s self, f: F) -> std::iter::FilterMap<std::slice::Iter<'s, DirEntryRecord<E>>, F> where F: FnMut(&'s DirEntryRecord<E>) -> Option<T> {
+        self.content.iter().filter_map( f )
+    }
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////
+//// DirState
+
+#[derive(Debug, PartialEq, Eq)]
+enum DirPass {
+    Entire,
+    First,
+    Second
+}
+
+#[derive(Debug)]
+pub struct DirState<E: source::SourceExt> {
+    /// The depth of this dir
+    depth: usize,
+    /// Content of this dir
+    content: DirContent<E>,
+    /// Current pass
+    pass: DirPass,
+    /// Current position
+    position: Position<(), ()>,
+}
+
+impl<E: source::SourceExt> DirState<E> {
+    fn get_initial_pass( opts_immut: &WalkDirOptionsImmut<E> ) -> DirPass {
+        if opts_immut.content_order == ContentOrder::None {
+            DirPass::Entire
+        } else {
+            DirPass::First
+        }
+    }
+
+    fn init(&mut self, opts_immut: &WalkDirOptionsImmut<E>, sorter: &mut Option<FnCmp<E>>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) {
+
+        if let Some(cmp) = sorter {
+            // let opts_immut = &opts.immut;
+            // let cmp = if let Some(ref mut cmp) = &mut opts.sorter {cmp} else {unreachable!()};
+
+            self.content.load_all_and_sort(opts_immut, cmp, process_dent);
+        }
+
+    }
+
+    /// New DirState from alone DirEntry
+    pub fn new_once( raw_dent: DirEntry<E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, sorter: &mut Option<FnCmp<E>>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Self {
+        let mut this = Self {
+            depth,
+            content: DirContent::<E>::new_once(raw_dent),
+            pass: Self::get_initial_pass(opts_immut),
+            position: Position::BeforeContent,
+        };
+        this.init(opts_immut, sorter, process_dent);
+        this
+    }
+
+    /// New DirState from FsReadDir
+    pub fn new( rd: wd::ResultInner<E::FsReadDir, E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, sorter: &mut Option<FnCmp<E>>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) -> Self {
+        let mut this = Self {
+            depth,
+            content: DirContent::<E>::new(rd),
+            pass: Self::get_initial_pass(opts_immut),
+            position: Position::BeforeContent,
+        };
+        this.init(opts_immut, sorter, process_dent);
+        this
+    }
+
+    /// Load all remaining DirEntryRecord into tail of self.content.
+    /// Doesn't change position.
+    pub(crate) fn load_all(&mut self, opts_immut: &WalkDirOptionsImmut<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>) ) {
+        self.content.load_all(opts_immut, process_dent)
+    }
+
     /// Gets next record (according to content order and filter).
     /// Updates current position.
-    fn next(&mut self, opts: &WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) -> bool {
+    fn next(&mut self, opts_immut: &WalkDirOptionsImmut<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) -> bool {
         loop {
-            if let Some((first_pass, hidden)) = self.get_next_rec(opts, process_dent) {
+            if let Some((first_pass, hidden)) = self.content.get_next_rec(opts_immut, process_dent) {
                 let valid = match self.pass {
                     DirPass::Entire => true,
                     DirPass::First => first_pass,
@@ -431,7 +437,7 @@ impl<E: source::SourceExt> DirState<E> {
                 },
                 DirPass::First => {
                     self.pass = DirPass::Second;
-                    self.rewind_rec();
+                    self.content.rewind();
                     continue;
                 },
             };
@@ -440,12 +446,12 @@ impl<E: source::SourceExt> DirState<E> {
 
     /// Next.
     /// Updates current position.
-    pub fn next_position(&mut self, opts: &WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) {
+    pub fn next_position(&mut self, opts_immut: &WalkDirOptionsImmut<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) {
         if self.position == Position::AfterContent {
             return;
         };
 
-        if self.next( opts, process_dent ) {
+        if self.next( opts_immut, process_dent ) {
             // Remember: at this state current rec must exist
             self.position = Position::Entry(());
         } else {
@@ -460,7 +466,7 @@ impl<E: source::SourceExt> DirState<E> {
             Position::BeforeContent => Position::BeforeContent,
             Position::Entry(_) => {
                 // At this state current rec must exist
-                let rec = self.get_current_rec().unwrap();
+                let rec = self.content.get_current_rec().unwrap();
                 match &mut rec.dent {
                     Ok(dent) => {
                         Position::Entry(ProcessedDirEntry{ dent: dent.clone(), is_dir: rec.is_dir })
@@ -477,14 +483,14 @@ impl<E: source::SourceExt> DirState<E> {
 
     /// Gets copy of entire dir, loading all remaining content if necessary (not considering content order).
     /// Doesn't change position.
-    pub fn clone_all_content(&mut self, filter: ContentFilter, opts: &WalkDirOptions<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) -> Vec<DirEntry<E>> {
+    pub fn clone_all_content(&mut self, filter: ContentFilter, opts_immut: &WalkDirOptionsImmut<E>, process_dent: &impl (Fn(DirEntry<E>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>>)) -> Vec<DirEntry<E>> {
 
-        DirState::load_all(&mut self.rd, &mut self.content, opts, self.depth, process_dent);
+        self.content.load_all(opts_immut, process_dent);
         
         match filter {
-            ContentFilter::None => self.content.iter().filter_map(|rec| rec.dent.as_ref().ok()).cloned().collect(),
-            ContentFilter::DirsOnly => self.content.iter().filter_map(|rec| rec.dent.as_ref().ok().filter(|_| rec.is_dir)).cloned().collect(),
-            ContentFilter::FilesOnly => self.content.iter().filter_map(|rec| rec.dent.as_ref().ok().filter(|_| !rec.is_dir)).cloned().collect(),
+            ContentFilter::None => self.content.iter_content(|rec| rec.dent.as_ref().ok()).cloned().collect(),
+            ContentFilter::DirsOnly => self.content.iter_content(|rec| rec.dent.as_ref().ok().filter(|_| rec.is_dir)).cloned().collect(),
+            ContentFilter::FilesOnly => self.content.iter_content(|rec| rec.dent.as_ref().ok().filter(|_| !rec.is_dir)).cloned().collect(),
         }
     }
 
