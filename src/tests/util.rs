@@ -100,18 +100,15 @@ impl Dir {
 
     /// Run the given iterator and return the result as a distinct collection
     /// of directory entries and errors.
-    pub fn run_recursive<I, E>(&self, it: I) -> RecursiveResults<E>
+    pub fn run_recursive<I, E: source::SourceExt>(&self, it: I) -> RecursiveResults<E>
     where
-        I: IntoIterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>>,
-        E: source::SourceExt,
+        I: Iterator<Item = result::Result<DirEntry<E>, Error<E>>>,
     {
         let mut results = RecursiveResults { ents: vec![], errs: vec![] };
         for result in it {
             match result {
-                Position::BeforeContent(_) => {},
-                Position::Entry(ent) => results.ents.push(ent),
-                Position::Error(err) => results.errs.push(err),
-                Position::AfterContent => {},
+                Ok(ent) => results.ents.push(ent),
+                Err(err) => results.errs.push(err),
             }
         }
         results
