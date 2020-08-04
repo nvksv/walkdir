@@ -408,7 +408,7 @@ impl<E: source::SourceExt> WalkDir<E> {
 }
 
 impl<E: source::SourceExt> IntoIterator for WalkDir<E> {
-    type Item = Position<DirEntry<E>, Error<E>>;
+    type Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>;
     type IntoIter = IntoIter<E>;
 
     fn into_iter(self) -> IntoIter<E> {
@@ -751,7 +751,7 @@ impl<E: source::SourceExt> IntoIter<E> {
 }
 
 impl<E: source::SourceExt> Iterator for IntoIter<E> {
-    type Item = Position<DirEntry<E>, wd::Error<E>>;
+    type Item = Position<Option<DirEntry<E>>, DirEntry<E>, wd::Error<E>>;
     /// Advances the iterator and returns the next value.
     ///
     /// # Errors
@@ -768,17 +768,30 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
         }
 
         loop {
-            let cur_state = match self.states.last_mut() {
-                Some(state) => state,
-                None => return None,
-            };
+            let last_state_index = match self.states.len() {
+                0 => return None,
+                len @ _ => (len-1),
+            }; 
+
+            let cur_state = self.states.get_mut(last_state_index-1).unwrap();
 
             match cur_state.get_current_position() {
-                Position::BeforeContent => {
+                Position::BeforeContent(_) => {
                     assert!( self.transition_state == TransitionState::None );
                     
                     cur_state.next_position( &self.opts.immut, &process_dent!(self) );
-                    return Some(Position::BeforeContent);
+
+                    if last_state_index >= 1 {
+                        let prev_state = self.states.get_mut(last_state_index-1).unwrap();
+                        match prev_state.get_current_position() {
+                            Position::Entry(ProcessedDirEntry{dent, is_dir: true}) => {
+                                return Some(Position::BeforeContent(Some(dent.clone())));
+                            },
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        return Some(Position::BeforeContent(None));
+                    }
                 }, 
                 Position::Entry(ProcessedDirEntry{dent, is_dir}) => {
                     if is_dir {
@@ -925,7 +938,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
     where
-        P: FnMut(&Position<DirEntry<E>, Error<E>>) -> bool,
+        P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
     {
         FilterEntry { inner: self, predicate: predicate }
     }
@@ -992,6 +1005,55 @@ impl<E: source::SourceExt> IntoIter<E> {
     }
 }
 
+/////////////////////////////////////////////////////////////////////////
+//// WalkDirIter
+
+trait WalkDirIter<E: source::SourceExt> {
+    fn skip_current_dir(&mut self);
+}
+
+impl<E: source::SourceExt> WalkDirIter<E> for IntoIter<E> {
+    fn skip_current_dir(&mut self) {
+        <Self as WalkDirIter::<E>>::skip_current_dir(self);
+    }
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////
+//// ClassicIntoIter
+
+pub struct ClassicIter<E: source::SourceExt> {
+    inner: IntoIter<E>,
+}
+
+impl<E: source::SourceExt> Iterator for ClassicIter<E>
+{
+    type Item = DirEntry<E>;
+
+    /// Advances the iterator and returns the next value.
+    ///
+    /// # Errors
+    ///
+    /// If the iterator fails to retrieve the next value, this method returns
+    /// an error value. The error will be wrapped in an `Option::Some`.
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.inner.next() {
+                Some(Position::Entry(dent)) => return Some(dent),
+                Some(_) => continue,
+                None => return None,
+            }
+        }
+    }
+}
+
+impl<E: source::SourceExt> WalkDirIter<E> for ClassicIter<E> {
+    fn skip_current_dir(&mut self) {
+        self.inner.skip_current_dir();
+    }
+}
+
 
 
 
@@ -1020,17 +1082,23 @@ impl<E: source::SourceExt> IntoIter<E> {
 /// [`min_depth`]: struct.WalkDir.html#method.min_depth
 /// [`max_depth`]: struct.WalkDir.html#method.max_depth
 #[derive(Debug)]
-pub struct FilterEntry<I, P> {
+pub struct FilterEntry<E, I, P> 
+where
+    E: source::SourceExt,
+    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
+    P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
+{
     inner: I,
     predicate: P,
 }
 
-impl<P, E> Iterator for FilterEntry<IntoIter<E>, P>
+impl<E, I, P> Iterator for FilterEntry<E, I, P>
 where
-    P: FnMut(&Position<DirEntry<E>, Error<E>>) -> bool,
+    P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
+    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
     E: source::SourceExt,
 {
-    type Item = Position<DirEntry<E>, Error<E>>;
+    type Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>;
 
     /// Advances the iterator and returns the next value.
     ///
@@ -1059,9 +1127,10 @@ where
     }
 }
 
-impl<P, E> FilterEntry<IntoIter<E>, P>
+impl<E, I, P> FilterEntry<E, I, P>
 where
-    P: FnMut(&Position<DirEntry<E>, Error<E>>) -> bool,
+    P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
+    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
     E: source::SourceExt,
 {
     /// Yields only entries which satisfy the given predicate and skips
@@ -1110,7 +1179,7 @@ where
     /// [`skip_current_dir`]: #method.skip_current_dir
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
+    pub fn filter_entry(self, predicate: P) -> FilterEntry<E, Self, P> {
         FilterEntry { inner: self, predicate: predicate }
     }
 

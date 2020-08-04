@@ -359,7 +359,7 @@ pub struct DirState<E: source::SourceExt> {
     /// Current pass
     pass: DirPass,
     /// Current position
-    position: Position<(), ()>,
+    position: Position<(), (), ()>,
 }
 
 impl<E: source::SourceExt> DirState<E> {
@@ -388,7 +388,7 @@ impl<E: source::SourceExt> DirState<E> {
             depth,
             content: DirContent::<E>::new_once(raw_dent),
             pass: Self::get_initial_pass(opts_immut),
-            position: Position::BeforeContent,
+            position: Position::BeforeContent(()),
         };
         this.init(opts_immut, sorter, process_dent);
         this
@@ -400,7 +400,7 @@ impl<E: source::SourceExt> DirState<E> {
             depth,
             content: DirContent::<E>::new(rd, depth),
             pass: Self::get_initial_pass(opts_immut),
-            position: Position::BeforeContent,
+            position: Position::BeforeContent(()),
         };
         this.init(opts_immut, sorter, process_dent);
         this
@@ -461,9 +461,11 @@ impl<E: source::SourceExt> DirState<E> {
 
     /// Get current state.
     /// Doesn't change position.
-    pub fn get_current_position(&mut self) -> Position<ProcessedDirEntry<E>, wd::Error<E>> {
+    pub fn get_current_position(&mut self) -> Position<(), ProcessedDirEntry<E>, wd::Error<E>> {
         match self.position {
-            Position::BeforeContent => Position::BeforeContent,
+            Position::BeforeContent(_) => {
+                Position::BeforeContent(())
+            },
             Position::Entry(_) => {
                 // At this state current rec must exist
                 let rec = self.content.get_current_rec().unwrap();

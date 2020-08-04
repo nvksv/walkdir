@@ -888,7 +888,7 @@ fn skip_current_dir() {
     while let Some(result) = it.next() {
         let ent = match result {
             Position::Entry(ent) => ent,
-            Position::AfterContent | Position::BeforeContent => {continue},
+            Position::BeforeContent(_) | Position::AfterContent => {continue},
             _ => panic!(),
         };
         paths.push(ent.path().to_path_buf());
