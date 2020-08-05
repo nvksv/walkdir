@@ -1,6 +1,6 @@
 use crate::source;
 use crate::error;
-use crate::dent::DirEntry;
+use crate::dir::FlatDirEntry;
 
 pub use error::{Error, ErrorInner};
 
@@ -21,7 +21,7 @@ pub type ResultInner<T, E = source::DefaultSourceExt> = ::std::result::Result<T,
 
 /// A DirEntry sorter function.
 pub type FnCmp<E> = Box<
-    dyn FnMut(&DirEntry<E>, &DirEntry<E>) -> std::cmp::Ordering
+    dyn FnMut(&FlatDirEntry<E>, &FlatDirEntry<E>) -> std::cmp::Ordering
         + Send
         + Sync
         + 'static,

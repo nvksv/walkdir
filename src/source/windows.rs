@@ -7,7 +7,7 @@ use std::path;
 
 use same_file;
 
-use crate::dent::DirEntry;
+use crate::rawdent::RawDirEntry;
 
 #[derive(Debug)]
 pub struct AncestorWindowsExt {
@@ -37,7 +37,7 @@ impl SourceExt for WalkDirWindowsExt {
     type OptionsExt = Nil;
     type IntoIterExt = Nil;
     type AncestorExt = AncestorWindowsExt;
-    type DirEntryExt = DirEntryWindowsExt;
+    type RawDirEntryExt = DirEntryWindowsExt;
 
     type FsFileName = std::ffi::OsStr;
     type FsDirEntry = std::fs::DirEntry;
@@ -61,7 +61,7 @@ impl SourceExt for WalkDirWindowsExt {
         same_file::Handle::from_path(path)
     }
 
-    fn ancestor_new(dent: &DirEntry<Self>) -> io::Result<Self::AncestorExt> {
+    fn ancestor_new(dent: &RawDirEntry<Self>) -> io::Result<Self::AncestorExt> {
         let handle = same_file::Handle::from_path(dent.path())?;
         Ok(Self::AncestorExt { handle })
     }
@@ -89,15 +89,17 @@ impl SourceExt for WalkDirWindowsExt {
     }
 
     /// Get metadata for symlink
+    #[allow(unused_variables)]
     fn symlink_metadata_internal(
-        dent: &DirEntry<Self>,
+        raw_dent: &RawDirEntry<Self>,
+        raw_dent_ext: &Self::RawDirEntryExt,
     ) -> io::Result<Self::FsMetadata> {
-        Ok(dent.ext.metadata.clone())
+        Ok(raw_dent_ext.metadata.clone())
     }
 
     #[allow(unused_variables)]
     fn read_dir<P: AsRef<Self::Path>>(
-        dent: &DirEntry<Self>,
+        raw_dent: &RawDirEntry<Self>,
         path: P,
     ) -> io::Result<Self::FsReadDir> {
         fs::read_dir(path.as_ref())
@@ -106,21 +108,21 @@ impl SourceExt for WalkDirWindowsExt {
     /// This works around a bug in Rust's standard library:
     /// https://github.com/rust-lang/rust/issues/46484
     #[allow(unused_variables)]
-    fn is_dir(dent: &DirEntry<Self>) -> bool {
+    fn is_dir(raw_dent: &RawDirEntry<Self>, raw_dent_ext: &Self::RawDirEntryExt) -> bool {
         use std::os::windows::fs::MetadataExt;
         use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
 
-        dent.ext.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+        raw_dent_ext.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
     }
 
-    fn dent_from_fsentry(
+    fn rawdent_from_fsentry(
         ent: &Self::FsDirEntry,
-    ) -> io::Result<Self::DirEntryExt> {
-        Ok(Self::DirEntryExt { metadata: ent.metadata()? })
+    ) -> io::Result<Self::RawDirEntryExt> {
+        Ok(Self::RawDirEntryExt { metadata: ent.metadata()? })
     }
 
-    fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt {
-        Self::DirEntryExt { metadata: md }
+    fn rawdent_from_metadata(md: Self::FsMetadata) -> Self::RawDirEntryExt {
+        Self::RawDirEntryExt { metadata: md }
     }
 
     #[allow(unused_variables)]

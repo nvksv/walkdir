@@ -849,14 +849,14 @@ fn contents_first_ordered() {
     dir.mkdirp("foo");
     dir.mkdirp("foo/bar");
     dir.mkdirp("baz");
-    dir.mkdirp("zbaz");
+    dir.mkdirp("zzz");
     dir.touch_all(&["a", "b", "c"]);
     dir.touch_all(&["foo/a", "foo/b", "foo/c"]);
     dir.touch_all(&["foo/bar/a", "foo/bar/b", "foo/bar/c"]);
-    dir.touch_all(&["zbaz/a", "zbaz/b", "zbaz/c"]);
+    dir.touch_all(&["zzz/a", "zzz/b", "zzz/c"]);
     dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
 
-    let wd = <WalkDir>::new(dir.path()).contents_first(false).content_order(ContentOrder::FilesFirst).sort_by(|a, b| a.file_name().cmp(b.file_name()));
+    let wd = <WalkDir>::new(dir.path()).contents_first(false).content_order(ContentOrder::FilesFirst).sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()));
     let r = dir.run_recursive(wd.into_iter().into_classic());
     r.assert_no_errors();
 
@@ -877,10 +877,10 @@ fn contents_first_ordered() {
         dir.join("foo").join("bar").join("a"),
         dir.join("foo").join("bar").join("b"),
         dir.join("foo").join("bar").join("c"),
-        dir.join("zbaz"),
-        dir.join("zbaz").join("a"),
-        dir.join("zbaz").join("b"),
-        dir.join("zbaz").join("c"),
+        dir.join("zzz"),
+        dir.join("zzz").join("a"),
+        dir.join("zzz").join("b"),
+        dir.join("zzz").join("c"),
     ];
     assert_eq!(expected, r.paths());
 }
@@ -943,7 +943,7 @@ fn sort() {
     dir.mkdirp("quux");
 
     let wd = <WalkDir>::new(dir.path())
-        .sort_by(|a, b| a.file_name().cmp(b.file_name()).reverse());
+        .sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()).reverse());
     let r = dir.run_recursive(wd.into_iter().into_classic());
     r.assert_no_errors();
 
@@ -966,7 +966,7 @@ fn sort_max_open() {
 
     let wd = <WalkDir>::new(dir.path())
         .max_open(1)
-        .sort_by(|a, b| a.file_name().cmp(b.file_name()).reverse());
+        .sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()).reverse());
     let r = dir.run_recursive(wd.into_iter().into_classic());
     r.assert_no_errors();
 

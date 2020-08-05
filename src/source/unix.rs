@@ -24,6 +24,7 @@ impl SourceExt for WalkDirUnixExt {
     type IntoIterExt = Nil;
     type AncestorExt = Nil;
     type DirEntryExt = DirEntryUnixExt;
+    type RawDirEntryExt = DirEntryUnixExt;
 
     type FsFileName = std::ffi::OsStr;
     type FsDirEntry = std::fs::DirEntry;
@@ -99,6 +100,13 @@ impl SourceExt for WalkDirUnixExt {
     fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt {
         use std::os::unix::fs::MetadataExt;
         Self::DirEntryExt { ino: md.ino() }
+    }
+
+    #[allow(unused_variables)]
+    fn dent_from_rawdent(
+        raw: &Self::RawDirEntryExt,
+    ) -> Self::DirEntryExt {
+        raw
     }
 
     #[allow(unused_variables)]

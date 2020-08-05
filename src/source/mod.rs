@@ -31,7 +31,7 @@ use std::io;
 use std::marker::Send;
 use std::ops::Deref;
 
-use crate::dent::DirEntry;
+use crate::rawdent::RawDirEntry;
 
 /// Functions for SourceExt::Path
 pub trait SourcePath<PathBuf> {
@@ -86,8 +86,8 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     type IntoIterExt: fmt::Debug;
     /// Extension for Ancestor
     type AncestorExt: fmt::Debug + Sized;
-    /// Extension for DirEntry
-    type DirEntryExt: fmt::Debug + Clone;
+    /// Extension for RawDirEntry
+    type RawDirEntryExt: fmt::Debug + Clone;
 
     /// ffi::OsStr
     type FsFileName: ?Sized;
@@ -123,7 +123,7 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     ) -> io::Result<Self::SameFileHandle>;
 
     /// Make new
-    fn ancestor_new(dent: &DirEntry<Self>) -> io::Result<Self::AncestorExt>;
+    fn ancestor_new(dent: &RawDirEntry<Self>) -> io::Result<Self::AncestorExt>;
 
     /// Check if this entry and child is same
     #[allow(unused_variables)]
@@ -146,26 +146,28 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
 
     /// Get metadata for symlink
     fn symlink_metadata_internal(
-        dent: &DirEntry<Self>,
+        dent: &RawDirEntry<Self>,
+        raw_dent_ext: &Self::RawDirEntryExt,
     ) -> io::Result<Self::FsMetadata>;
 
     /// Get metadata for symlink
     fn read_dir<P: AsRef<Self::Path>>(
-        dent: &DirEntry<Self>,
+        dent: &RawDirEntry<Self>,
         path: P,
     ) -> io::Result<Self::FsReadDir>;
 
     /// Check if this entry is a directory
-    fn is_dir(dent: &DirEntry<Self>) -> bool {
+    #[allow(unused_variables)]
+    fn is_dir(dent: &RawDirEntry<Self>, raw_dent_ext: &Self::RawDirEntryExt) -> bool {
         dent.file_type().is_dir()
     }
 
     /// Create extension from DirEntry
-    fn dent_from_fsentry(
+    fn rawdent_from_fsentry(
         ent: &Self::FsDirEntry,
-    ) -> io::Result<Self::DirEntryExt>;
+    ) -> io::Result<Self::RawDirEntryExt>;
     /// Create extension from metadata
-    fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt;
+    fn rawdent_from_metadata(md: Self::FsMetadata) -> Self::RawDirEntryExt;
 
     /// Make new
     fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self;

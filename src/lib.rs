@@ -110,9 +110,12 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 doc_comment::doctest!("../README.md");
 
 mod wd;
-mod dir;
-mod walk;
+mod rawdent;
 mod dent;
+mod dir;
+mod opts;
+mod walk;
+mod iter;
 mod error;
 pub mod source;
 #[cfg(test)]
@@ -123,7 +126,9 @@ pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 
-pub use crate::walk::{WalkDir, IntoIter, FilterEntry, WalkDirIter};
+pub use crate::opts::WalkDir;
+pub use crate::walk::IntoIter;
+pub use crate::iter::{FilterEntry, WalkDirIter};
 pub use crate::wd::{Position, ContentFilter, ContentOrder};
 
 

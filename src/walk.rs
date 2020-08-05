@@ -1,17 +1,18 @@
-use std::cmp::{min, Ordering};
-use std::fmt;
+use std::cmp;
 use std::io;
-use std::result;
 use std::vec;
 
 
-use crate::wd::{self, Error, ContentFilter, ContentOrder, Position, FnCmp, DeviceNum};
+use crate::wd::{self, ContentFilter, Position, DeviceNum};
+//use crate::rawdent::RawDirEntry;
+use crate::rawdent::RawDirEntry;
 use crate::dent::DirEntry;
 #[cfg(unix)]
 use crate::dent::DirEntryExt;
 use crate::error::ErrorInner;
 use crate::source::{self, SourceFsFileType, SourceFsMetadata, SourcePath};
-use crate::dir::{DirState, ProcessedDirEntry};
+use crate::dir::{DirState, FlatDirEntry};
+use crate::opts::{WalkDirOptions, WalkDirOptionsImmut};
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -38,382 +39,9 @@ macro_rules! rtry {
 }
 
 macro_rules! process_dent {
-    ($self:expr) => {
-        ((|opts_immut, root_device, states_path| move |dent| Self::process_dent(dent, opts_immut, root_device, states_path))(&$self.opts.immut, &$self.root_device, &$self.states_path))
+    ($self:expr, $depth:expr) => {
+        ((|depth, opts_immut, root_device| move |raw_dent: RawDirEntry<E>| Self::process_rawdent(raw_dent, depth, opts_immut, root_device))($depth, &$self.opts.immut, &$self.root_device))
     };
-}
-
-
-/////////////////////////////////////////////////////////////////////////
-//// WalkDirOptions
-
-pub struct WalkDirOptionsImmut<E: source::SourceExt> {
-    pub same_file_system: bool,
-    pub follow_links: bool,
-    pub max_open: usize,
-    pub min_depth: usize,
-    pub max_depth: usize,
-    pub contents_first: bool,
-    pub content_filter: ContentFilter,
-    pub content_order: ContentOrder,
-    /// Extension part
-    #[allow(dead_code)]
-    ext: E::OptionsExt,
-}
-
-pub struct WalkDirOptions<E: source::SourceExt> {
-    pub immut: WalkDirOptionsImmut<E>,
-    pub sorter: Option<FnCmp<E>>,
-}
-
-impl<E: source::SourceExt> Default for WalkDirOptions<E> { 
-    fn default() -> Self {
-        Self {
-            immut: WalkDirOptionsImmut {
-                same_file_system: false,
-                follow_links: false,
-                max_open: 10,
-                min_depth: 0,
-                max_depth: ::std::usize::MAX,
-                contents_first: false,
-                content_filter: ContentFilter::None,
-                content_order: ContentOrder::None,
-                ext: E::OptionsExt::default(),
-            },
-            sorter: None,
-        }
-    }
-}
-
-impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
-    fn fmt(
-        &self,
-        f: &mut fmt::Formatter<'_>,
-    ) -> result::Result<(), fmt::Error> {
-        let sorter_str = if self.sorter.is_some() {
-            // FnMut isn't `Debug`
-            "Some(...)"
-        } else {
-            "None"
-        };
-        f.debug_struct("WalkDirOptions")
-            .field("same_file_system", &self.immut.same_file_system)
-            .field("follow_links", &self.immut.follow_links)
-            .field("max_open", &self.immut.max_open)
-            .field("min_depth", &self.immut.min_depth)
-            .field("max_depth", &self.immut.max_depth)
-            .field("contents_first", &self.immut.contents_first)
-            .field("content_filter", &self.immut.content_filter)
-            .field("content_order", &self.immut.content_order)
-            .field("sorter", &sorter_str)
-            .field("ext", &self.immut.ext)
-            .finish()
-    }
-}
-
-
-
-
-/////////////////////////////////////////////////////////////////////////
-//// WalkDir
-
-/// A builder to create an iterator for recursively walking a directory.
-///
-/// Results are returned in depth first fashion, with directories yielded
-/// before their contents. If [`contents_first`] is true, contents are yielded
-/// before their directories. The order is unspecified but if [`sort_by`] is
-/// given, directory entries are sorted according to this function. Directory
-/// entries `.` and `..` are always omitted.
-///
-/// If an error occurs at any point during iteration, then it is returned in
-/// place of its corresponding directory entry and iteration continues as
-/// normal. If an error occurs while opening a directory for reading, then it
-/// is not descended into (but the error is still yielded by the iterator).
-/// Iteration may be stopped at any time. When the iterator is destroyed, all
-/// resources associated with it are freed.
-///
-/// [`contents_first`]: struct.WalkDir.html#method.contents_first
-/// [`sort_by`]: struct.WalkDir.html#method.sort_by
-///
-/// # Usage
-///
-/// This type implements [`IntoIterator`] so that it may be used as the subject
-/// of a `for` loop. You may need to call [`into_iter`] explicitly if you want
-/// to use iterator adapters such as [`filter_entry`].
-///
-/// Idiomatic use of this type should use method chaining to set desired
-/// options. For example, this only shows entries with a depth of `1`, `2` or
-/// `3` (relative to `foo`):
-///
-/// ```no_run
-/// use walkdir::WalkDir;
-/// # use walkdir::Error;
-///
-/// # fn try_main() -> Result<(), Error> {
-/// for entry in <WalkDir>::new("foo").min_depth(1).max_depth(3) {
-///     println!("{}", entry?.path().display());
-/// }
-/// # Ok(())
-/// # }
-/// ```
-///
-/// [`IntoIterator`]: https://doc.rust-lang.org/stable/std/iter/trait.IntoIterator.html
-/// [`into_iter`]: https://doc.rust-lang.org/nightly/core/iter/trait.IntoIterator.html#tymethod.into_iter
-/// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
-///
-/// Note that the iterator by default includes the top-most directory. Since
-/// this is the only directory yielded with depth `0`, it is easy to ignore it
-/// with the [`min_depth`] setting:
-///
-/// ```no_run
-/// use walkdir::WalkDir;
-/// # use walkdir::Error;
-///
-/// # fn try_main() -> Result<(), Error> {
-/// for entry in <WalkDir>::new("foo").min_depth(1) {
-///     println!("{}", entry?.path().display());
-/// }
-/// # Ok(())
-/// # }
-/// ```
-///
-/// [`min_depth`]: struct.WalkDir.html#method.min_depth
-///
-/// This will only return descendents of the `foo` directory and not `foo`
-/// itself.
-///
-/// # Loops
-///
-/// This iterator (like most/all recursive directory iterators) assumes that
-/// no loops can be made with *hard* links on your file system. In particular,
-/// this would require creating a hard link to a directory such that it creates
-/// a loop. On most platforms, this operation is illegal.
-///
-/// Note that when following symbolic/soft links, loops are detected and an
-/// error is reported.
-#[derive(Debug)]
-pub struct WalkDir<E: source::SourceExt = source::DefaultSourceExt> {
-    opts: WalkDirOptions<E>,
-    root: E::PathBuf,
-    /// Extension part
-    ext: E,
-}
-
-impl<E: source::SourceExt> WalkDir<E> {
-    /// Create a builder for a recursive directory iterator starting at the
-    /// file path `root`. If `root` is a directory, then it is the first item
-    /// yielded by the iterator. If `root` is a file, then it is the first
-    /// and only item yielded by the iterator. If `root` is a symlink, then it
-    /// is always followed for the purposes of directory traversal. (A root
-    /// `DirEntry` still obeys its documentation with respect to symlinks and
-    /// the `follow_links` setting.)
-    pub fn new<P: AsRef<E::Path>>(root: P) -> Self {
-        WalkDir {
-            opts: WalkDirOptions::default(),
-            root: root.as_ref().to_path_buf(),
-            ext: E::walkdir_new(root),
-        }
-    }
-
-    /// Do not cross file system boundaries.
-    ///
-    /// When this option is enabled, directory traversal will not descend into
-    /// directories that are on a different file system from the root path.
-    ///
-    /// Currently, this option is only supported on Unix and Windows. If this
-    /// option is used on an unsupported platform, then directory traversal
-    /// will immediately return an error and will not yield any entries.
-    pub fn same_file_system(mut self, yes: bool) -> Self {
-        self.opts.immut.same_file_system = yes;
-        self
-    }
-
-    /// Follow symbolic links. By default, this is disabled.
-    ///
-    /// When `yes` is `true`, symbolic links are followed as if they were
-    /// normal directories and files. If a symbolic link is broken or is
-    /// involved in a loop, an error is yielded.
-    ///
-    /// When enabled, the yielded [`DirEntry`] values represent the target of
-    /// the link while the path corresponds to the link. See the [`DirEntry`]
-    /// type for more details.
-    ///
-    /// [`DirEntry`]: struct.DirEntry.html
-    pub fn follow_links(mut self, yes: bool) -> Self {
-        self.opts.immut.follow_links = yes;
-        self
-    }
-
-    /// Set the minimum depth of entries yielded by the iterator.
-    ///
-    /// The smallest depth is `0` and always corresponds to the path given
-    /// to the `new` function on this type. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
-    pub fn min_depth(mut self, depth: usize) -> Self {
-        self.opts.immut.min_depth = depth;
-        if self.opts.immut.min_depth > self.opts.immut.max_depth {
-            self.opts.immut.min_depth = self.opts.immut.max_depth;
-        }
-        self
-    }
-
-    /// Set the maximum depth of entries yield by the iterator.
-    ///
-    /// The smallest depth is `0` and always corresponds to the path given
-    /// to the `new` function on this type. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
-    ///
-    /// Note that this will not simply filter the entries of the iterator, but
-    /// it will actually avoid descending into directories when the depth is
-    /// exceeded.
-    pub fn max_depth(mut self, depth: usize) -> Self {
-        self.opts.immut.max_depth = depth;
-        if self.opts.immut.max_depth < self.opts.immut.min_depth {
-            self.opts.immut.max_depth = self.opts.immut.min_depth;
-        }
-        self
-    }
-
-    /// Set the maximum number of simultaneously open file descriptors used
-    /// by the iterator.
-    ///
-    /// `n` must be greater than or equal to `1`. If `n` is `0`, then it is set
-    /// to `1` automatically. If this is not set, then it defaults to some
-    /// reasonably low number.
-    ///
-    /// This setting has no impact on the results yielded by the iterator
-    /// (even when `n` is `1`). Instead, this setting represents a trade off
-    /// between scarce resources (file descriptors) and memory. Namely, when
-    /// the maximum number of file descriptors is reached and a new directory
-    /// needs to be opened to continue iteration, then a previous directory
-    /// handle is closed and has its unyielded entries stored in memory. In
-    /// practice, this is a satisfying trade off because it scales with respect
-    /// to the *depth* of your file tree. Therefore, low values (even `1`) are
-    /// acceptable.
-    ///
-    /// Note that this value does not impact the number of system calls made by
-    /// an exhausted iterator.
-    ///
-    /// # Platform behavior
-    ///
-    /// On Windows, if `follow_links` is enabled, then this limit is not
-    /// respected. In particular, the maximum number of file descriptors opened
-    /// is proportional to the depth of the directory tree traversed.
-    pub fn max_open(mut self, mut n: usize) -> Self {
-        if n == 0 {
-            n = 1;
-        }
-        self.opts.immut.max_open = n;
-        self
-    }
-
-    /// Set a function for sorting directory entries.
-    ///
-    /// If a compare function is set, the resulting iterator will return all
-    /// paths in sorted order. The compare function will be called to compare
-    /// entries from the same directory.
-    ///
-    /// ```rust,no_run
-    /// use std::cmp;
-    /// use std::ffi::OsString;
-    /// use walkdir::WalkDir;
-    ///
-    /// <WalkDir>::new("foo").sort_by(|a,b| a.file_name().cmp(b.file_name()));
-    /// ```
-    pub fn sort_by<F>(mut self, cmp: F) -> Self
-    where
-        F: FnMut(&DirEntry<E>, &DirEntry<E>) -> Ordering
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.opts.sorter = Some(Box::new(cmp));
-        self
-    }
-
-    /// Yield a directory's contents before the directory itself. By default,
-    /// this is disabled.
-    ///
-    /// When `yes` is `false` (as is the default), the directory is yielded
-    /// before its contents are read. This is useful when, e.g. you want to
-    /// skip processing of some directories.
-    ///
-    /// When `yes` is `true`, the iterator yields the contents of a directory
-    /// before yielding the directory itself. This is useful when, e.g. you
-    /// want to recursively delete a directory.
-    ///
-    /// # Example
-    ///
-    /// Assume the following directory tree:
-    ///
-    /// ```text
-    /// foo/
-    ///   abc/
-    ///     qrs
-    ///     tuv
-    ///   def/
-    /// ```
-    ///
-    /// With contents_first disabled (the default), the following code visits
-    /// the directory tree in depth-first order:
-    ///
-    /// ```no_run
-    /// use walkdir::WalkDir;
-    ///
-    /// for entry in <WalkDir>::new("foo") {
-    ///     let entry = entry.unwrap();
-    ///     println!("{}", entry.path().display());
-    /// }
-    ///
-    /// // foo
-    /// // foo/abc
-    /// // foo/abc/qrs
-    /// // foo/abc/tuv
-    /// // foo/def
-    /// ```
-    ///
-    /// With contents_first enabled:
-    ///
-    /// ```no_run
-    /// use walkdir::WalkDir;
-    ///
-    /// for entry in <WalkDir>::new("foo").contents_first(true) {
-    ///     let entry = entry.unwrap();
-    ///     println!("{}", entry.path().display());
-    /// }
-    ///
-    /// // foo/abc/qrs
-    /// // foo/abc/tuv
-    /// // foo/abc
-    /// // foo/def
-    /// // foo
-    /// ```
-    pub fn contents_first(mut self, yes: bool) -> Self {
-        self.opts.immut.contents_first = yes;
-        self
-    }
-
-    /// A variants for filtering content
-    pub fn content_filter(mut self, filter: ContentFilter) -> Self {
-        self.opts.immut.content_filter = filter;
-        self
-    }
-
-    /// A variants for filtering content
-    pub fn content_order(mut self, order: ContentOrder) -> Self {
-        self.opts.immut.content_order = order;
-        self
-    }
-
-}
-
-impl<E: source::SourceExt> IntoIterator for WalkDir<E> {
-    type Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>;
-    type IntoIter = IntoIter<E>;
-
-    fn into_iter(self) -> IntoIter<E> {
-        IntoIter::new( self.opts, self.root, self.ext )
-    }
 }
 
 
@@ -434,10 +62,10 @@ struct Ancestor<E: source::SourceExt> {
 
 impl<E: source::SourceExt> Ancestor<E> {
     /// Create a new ancestor from the given directory path.
-    fn new(dent: &DirEntry<E>) -> io::Result<Self> {
+    fn new(raw_dent: &RawDirEntry<E>) -> io::Result<Self> {
         Ok(Self {
-            path: dent.path().to_path_buf(),
-            ext: E::ancestor_new(dent)?,
+            path: raw_dent.path().to_path_buf(),
+            ext: E::ancestor_new(raw_dent)?,
         })
     }
 
@@ -521,7 +149,8 @@ pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
 }
 
 impl<E: source::SourceExt> IntoIter<E> {
-    fn new( opts: WalkDirOptions<E>, root: E::PathBuf, ext: E ) -> Self {
+    /// Make new
+    pub fn new( opts: WalkDirOptions<E>, root: E::PathBuf, ext: E ) -> Self {
         IntoIter {
             opts: opts,
             start: Some(root),
@@ -539,23 +168,23 @@ impl<E: source::SourceExt> IntoIter<E> {
     // - Some(Ok((dent, is_dir))) -- normal entry to yielding
     // - Some(Err(_)) -- some error occured
     // - None -- entry must be ignored
-    fn process_dent(raw_dent: DirEntry<E>, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>, states_path: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<ProcessedDirEntry<E>, E>> {
+    fn process_rawdent(raw_dent: RawDirEntry<E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>) -> Option<wd::ResultInner<FlatDirEntry<E>, E>> {
         
-        let dent = if raw_dent.file_type().is_symlink() && opts_immut.follow_links {
-            ortry!(Self::follow(raw_dent, states_path))
+        let (new_raw_dent, follow_link) = if raw_dent.file_type().is_symlink() && opts_immut.follow_links {
+            (ortry!(Self::follow(raw_dent)), true)
         } else {
-            raw_dent
+            (raw_dent, false)
         };
 
-        let mut is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
+        let mut is_normal_dir = !new_raw_dent.file_type().is_symlink() && new_raw_dent.is_dir();
 
         if is_normal_dir {
-            if opts_immut.same_file_system && dent.depth() > 0 {
-                if ! ortry!(Self::is_same_file_system(root_device, &dent)) {
+            if opts_immut.same_file_system && depth > 0 {
+                if ! ortry!(Self::is_same_file_system(root_device, &new_raw_dent)) {
                     return None;
                 };
             };
-        } else if dent.depth() == 0 && dent.file_type().is_symlink() {
+        } else if depth == 0 && new_raw_dent.file_type().is_symlink() {
             // As a special case, if we are processing a root entry, then we
             // always follow it even if it's a symlink and follow_links is
             // false. We are careful to not let this change the semantics of
@@ -563,90 +192,64 @@ impl<E: source::SourceExt> IntoIter<E> {
             // the follow_links setting. When it's disabled, it should report
             // itself as a symlink. When it's enabled, it should always report
             // itself as the target.
-            let md = ortry!(E::metadata(dent.path()).map_err(|err| {
-                ErrorInner::<E>::from_path(dent.path().to_path_buf(), err)
+            let md = ortry!(E::metadata(new_raw_dent.path()).map_err(|err| {
+                ErrorInner::<E>::from_path(new_raw_dent.path().to_path_buf(), err)
             }));
             is_normal_dir = md.file_type().is_dir();
         };
 
-        Some(Ok(ProcessedDirEntry{ dent: dent, is_dir: is_normal_dir }))
+        Some(Ok(FlatDirEntry{ 
+            raw: new_raw_dent, 
+            is_dir: is_normal_dir, 
+            follow_link 
+        }))
     }
 
-    fn init(&mut self, start: E::PathBuf) -> wd::ResultInner<(), E> {
+    fn init(&mut self, root: E::PathBuf) -> wd::ResultInner<(), E> {
         if self.opts.immut.same_file_system {
-            let result = E::device_num(&start)
-                .map_err(|e| ErrorInner::<E>::from_path(start.clone(), e));
+            let result = E::device_num(&root)
+                .map_err(|e| ErrorInner::<E>::from_path(root.clone(), e));
             self.root_device = Some(rtry!(result));
         }
-        let dent = rtry!(DirEntry::<E>::from_path(start, 0, false).map_err(wd::Error::into_inner));
+        let raw_dent = rtry!(RawDirEntry::<E>::from_path(root, false));
 
-        self.push_dir(dent, true)?;
+        self.push_dir_raw(raw_dent, 0)?;
 
         Ok(())
     }
 
-    // fn handle_entry(
-    //     &mut self,
-    //     mut dent: DirEntry<E>,
-    // ) -> Option<Result<DirEntry<E>, E>> {
-    //     if self.opts.follow_links && dent.file_type().is_symlink() {
-    //         dent = itry!(self.follow(dent));
-    //     }
-    //     let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
-    //     if is_normal_dir {
-    //         if self.opts.same_file_system && dent.depth() > 0 {
-    //             if itry!(self.is_same_file_system(&dent)) {
-    //                 itry!(self.push(&dent));
-    //             }
-    //         } else {
-    //             itry!(self.push(&dent));
-    //         }
-    //     } else if dent.depth() == 0 && dent.file_type().is_symlink() {
-    //         // As a special case, if we are processing a root entry, then we
-    //         // always follow it even if it's a symlink and follow_links is
-    //         // false. We are careful to not let this change the semantics of
-    //         // the DirEntry however. Namely, the DirEntry should still respect
-    //         // the follow_links setting. When it's disabled, it should report
-    //         // itself as a symlink. When it's enabled, it should always report
-    //         // itself as the target.
-    //         let md = itry!(E::metadata(dent.path()).map_err(|err| {
-    //             Error::from_path(dent.depth(), dent.path().to_path_buf(), err)
-    //         }));
-    //         if md.file_type().is_dir() {
-    //             itry!(self.push(&dent));
-    //         }
-    //     }
-    //     if is_normal_dir && self.opts.contents_first {
-    //         self.deferred_dirs.push(dent);
-    //         None
-    //     } else if self.skippable() {
-    //         None
-    //     } else {
-    //         Some(Ok(dent))
-    //     }
-    // }
+    fn push_dir(&mut self, dent: DirEntry<E>, new_depth: usize) -> wd::ResultInner<(), E> {
+        self.push_dir_raw( dent.into_raw(), new_depth )
+    }
 
-    fn push_dir(&mut self, dent: DirEntry<E>, is_root: bool) -> wd::ResultInner<(), E> {
+    fn push_dir_raw(&mut self, dent: RawDirEntry<E>, new_depth: usize) -> wd::ResultInner<(), E> {
 
         // Make room for another open file descriptor if we've hit the max.
         let free = self.states.len().checked_sub(self.oldest_opened).unwrap();
         if free == self.opts.immut.max_open {
             let state = self.states.get_mut(self.oldest_opened).unwrap();
-            state.load_all(&self.opts.immut, &process_dent!(self) );
+            state.load_all(&self.opts.immut, &process_dent!(self, new_depth) );
         }
 
-        let state = if is_root { 
-            DirState::<E>::new_once( dent.clone(), dent.depth(), &self.opts.immut, &mut self.opts.sorter, &process_dent!(self) ) 
+        let state = if new_depth == 0 { 
+            DirState::<E>::new_once( dent.clone(), new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) ) 
         } else {
             // Open a handle to reading the directory's entries.
-            let new_depth = dent.depth() + 1;
             let rd = E::read_dir(&dent, dent.path()).map_err(|err| ErrorInner::<E>::from_path(dent.path().to_path_buf(), err));
-            DirState::<E>::new( rd, new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self) )
+            DirState::<E>::new( rd, new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) )
         };
 
         if self.opts.immut.follow_links {
+            // The only way a symlink can cause a loop is if it points
+            // to a directory. Otherwise, it always points to a leaf
+            // and we can omit any loop checks.
+            if dent.is_dir() {
+                self.check_loop(dent.path())?;
+            }
+
             let ancestor = Ancestor::new(&dent)
                 .map_err(|err| ErrorInner::<E>::from_io(err))?;
+
             self.states_path.push(ancestor);
         }
 
@@ -681,7 +284,7 @@ impl<E: source::SourceExt> IntoIter<E> {
         // If everything in the stack is already closed, then there is
         // room for at least one more open descriptor and it will
         // always be at the top of the stack.
-        self.oldest_opened = min(self.oldest_opened, self.states.len());
+        self.oldest_opened = cmp::min(self.oldest_opened, self.states.len());
 
         self.transition_state = TransitionState::AfterPopUp;
     }
@@ -735,6 +338,40 @@ impl<E: source::SourceExt> IntoIter<E> {
         }
     }
 
+
+
+    fn follow(raw_dent: RawDirEntry<E>) -> wd::ResultInner<RawDirEntry<E>, E> {
+        let dent = RawDirEntry::<E>::from_path(
+            raw_dent.path().to_path_buf(),
+            true,
+        )?;
+        Ok(dent)
+    }
+
+    fn check_loop<P: AsRef<E::Path>>(&self, child: P) -> wd::ResultInner<(), E> {
+        let hchild = E::get_handle(&child).map_err(ErrorInner::<E>::from_io)?;
+
+        for ancestor in self.states_path.iter().rev() {
+            let is_same = ancestor.is_same(&hchild).map_err(ErrorInner::<E>::from_io)?;
+            if is_same {
+                return Err(ErrorInner::<E>::from_loop(
+                    &ancestor.path,
+                    child.as_ref()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn is_same_file_system(root_device: &Option<DeviceNum>, dent: &RawDirEntry<E>) -> wd::ResultInner<bool, E> {
+        let dent_device = E::device_num(dent.path())
+            .map_err(|err| ErrorInner::<E>::from_entry(dent, err))?;
+        Ok(root_device
+            .map(|d| d == dent_device)
+            .expect("BUG: called is_same_file_system without root device"))
+    }
+
+
     /// Gets content of current dir
     pub fn get_current_dir_content(&mut self, filter: ContentFilter) -> Option<Vec<DirEntry<E>>> {
         let cur_state = match self.states.last_mut() {
@@ -742,11 +379,13 @@ impl<E: source::SourceExt> IntoIter<E> {
             None => return None,
         };
 
-        let content = cur_state.clone_all_content(filter, &self.opts.immut, &process_dent!(self) );
+        let content = cur_state.clone_all_content(filter, &self.opts.immut, &process_dent!(self, cur_state.depth()) );
         
         Some(content)
     }
+
 }
+
 
 impl<E: source::SourceExt> Iterator for IntoIter<E> {
     type Item = Position<Option<DirEntry<E>>, DirEntry<E>, wd::Error<E>>;
@@ -766,24 +405,24 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
         }
 
         loop {
-            let last_state_index = match self.states.len() {
+            let cur_depth = match self.states.len() {
                 0 => return None,
                 len @ _ => (len-1),
             }; 
 
-            let cur_state = self.states.get_mut(last_state_index).unwrap();
+            let cur_state = self.states.get_mut(cur_depth).unwrap();
 
             match cur_state.get_current_position() {
                 Position::BeforeContent(_) => {
                     assert!( self.transition_state == TransitionState::None );
                     
-                    cur_state.next_position( &self.opts.immut, &process_dent!(self) );
+                    cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
 
-                    if last_state_index >= 1 {
-                        let prev_state = self.states.get_mut(last_state_index-1).unwrap();
+                    if cur_depth >= 1 {
+                        let prev_state = self.states.get_mut(cur_depth-1).unwrap();
                         match prev_state.get_current_position() {
-                            Position::Entry(ProcessedDirEntry{dent, is_dir: true}) => {
-                                return Some(Position::BeforeContent(Some(dent.clone())));
+                            Position::Entry(dent) => {
+                                return Some(Position::BeforeContent(Some(dent)));
                             },
                             _ => unreachable!(),
                         }
@@ -791,12 +430,12 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                         return Some(Position::BeforeContent(None));
                     }
                 }, 
-                Position::Entry(ProcessedDirEntry{dent, is_dir}) => {
-                    if is_dir {
+                Position::Entry(dent) => {
+                    if dent.is_dir() {
                         match self.transition_state {
                             TransitionState::AfterPopUp => {
                                 self.transition_state = TransitionState::None;
-                                cur_state.next_position( &self.opts.immut, &process_dent!(self) );
+                                cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
                                 if self.opts.immut.contents_first {
                                     if cur_state.depth() >= self.opts.immut.min_depth {
                                         return Some(Position::Entry(dent));
@@ -805,8 +444,9 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                             },
                             TransitionState::BeforePushDown => {
                                 self.transition_state = TransitionState::None;
-                                if let Err(e) = self.push_dir(dent.clone(), false) {
-                                    return Some(Position::Error(wd::Error::from_inner(e, dent.depth())));
+                                if let Err(e) = self.push_dir( dent, cur_depth+1 ) {
+                                    self.transition_state = TransitionState::AfterPopUp;
+                                    return Some(Position::Error(wd::Error::from_inner(e, cur_depth)));
                                 };
                             },
                             TransitionState::None => {
@@ -828,7 +468,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                     } else {
                         assert!( self.transition_state == TransitionState::None );
 
-                        cur_state.next_position( &self.opts.immut, &process_dent!(self) );
+                        cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
 
                         if cur_state.depth() >= self.opts.immut.min_depth {
                             return Some(Position::Entry(dent));
@@ -838,7 +478,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                 Position::Error(e) => {
                     assert!( self.transition_state == TransitionState::None );
 
-                    cur_state.next_position( &self.opts.immut, &process_dent!(self) );
+                    cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
                     return Some(Position::Error(e));
                 },
                 Position::AfterContent => {
@@ -857,624 +497,10 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
             };
         }
 
-        //     if last_position == Position::BeforeContent && self.opts.contents_first
-        // }
-        // while !self.stack.is_empty() {
-        //     self.depth = self.stack.len();
-        //     if let Some(dentry) = self.get_deferred_dir() {
-        //         return Some(Ok(dentry));
-        //     }
-        //     if self.depth > self.opts.max_depth {
-        //         // If we've exceeded the max depth, pop the current dir
-        //         // so that we don't descend.
-        //         self.pop();
-        //         continue;
-        //     }
-        //     // Unwrap is safe here because we've verified above that
-        //     // `self.stack_list` is not empty
-        //     let next = self
-        //         .stack
-        //         .last_mut()
-        //         .expect("BUG: stack should be non-empty")
-        //         .next();
-        //     match next {
-        //         None => self.pop(),
-        //         Some(Err(err)) => return Some(Err(err)),
-        //         Some(Ok(dent)) => {
-        //             if let Some(result) = self.handle_entry(dent) {
-        //                 return Some(result);
-        //             }
-        //         }
-        //     }
-        // }
-        // if self.opts.contents_first {
-        //     self.depth = self.stack_list.len();
-        //     if let Some(dentry) = self.get_deferred_dir() {
-        //         return Some(Ok(dentry));
-        //     }
-        // }
-        // None
-    }
-}
-
-impl<E: source::SourceExt> IntoIter<E> {
-
-
-    /// Yields only entries which satisfy the given predicate and skips
-    /// descending into directories that do not satisfy the given predicate.
-    ///
-    /// The predicate is applied to all entries. If the predicate is
-    /// true, iteration carries on as normal. If the predicate is false, the
-    /// entry is ignored and if it is a directory, it is not descended into.
-    ///
-    /// This is often more convenient to use than [`skip_current_dir`]. For
-    /// example, to skip hidden files and directories efficiently on unix
-    /// systems:
-    ///
-    /// ```no_run
-    /// use walkdir::{DirEntry, WalkDir};
-    /// # use walkdir::Error;
-    ///
-    /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
-    ///          .map(|s| s.starts_with("."))
-    ///          .unwrap_or(false)
-    /// }
-    ///
-    /// # fn try_main() -> Result<(), Error> {
-    /// for entry in <WalkDir>::new("foo")
-    ///                      .into_iter()
-    ///                      .filter_entry(|e| !is_hidden(e)) {
-    ///     println!("{}", entry?.path().display());
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Note that the iterator will still yield errors for reading entries that
-    /// may not satisfy the predicate.
-    ///
-    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
-    /// passed to this predicate.
-    ///
-    /// Note that if the iterator has `contents_first` enabled, then this
-    /// method is no different than calling the standard `Iterator::filter`
-    /// method (because directory entries are yielded after they've been
-    /// descended into).
-    ///
-    /// [`skip_current_dir`]: #method.skip_current_dir
-    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
-    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<E, Self, P>
-    where
-        P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
-    {
-        FilterEntry { inner: self, predicate: predicate }
-    }
-
-
-    // fn get_deferred_dir(&mut self) -> Option<DirEntry<E>> {
-    //     if self.opts.contents_first {
-    //         if self.depth < self.deferred_dirs.len() {
-    //             // Unwrap is safe here because we've guaranteed that
-    //             // `self.deferred_dirs.len()` can never be less than 1
-    //             let deferred: DirEntry<E> = self
-    //                 .deferred_dirs
-    //                 .pop()
-    //                 .expect("BUG: deferred_dirs should be non-empty");
-    //             if !self.skippable() {
-    //                 return Some(deferred);
-    //             }
-    //         }
-    //     }
-    //     None
-    // }
-
-
-    fn follow(raw_dent: DirEntry<E>, states_path: &Vec<Ancestor<E>>) -> wd::ResultInner<DirEntry<E>, E> {
-        let dent = DirEntry::<E>::from_path(
-            raw_dent.path().to_path_buf(),
-            raw_dent.depth(),
-            true,
-        ).map_err(wd::Error::into_inner)?;
-        // The only way a symlink can cause a loop is if it points
-        // to a directory. Otherwise, it always points to a leaf
-        // and we can omit any loop checks.
-        if dent.is_dir() {
-            Self::check_loop(dent.path(), states_path)?;
-        }
-        Ok(dent)
-    }
-
-    fn check_loop<P: AsRef<E::Path>>(child: P, states_path: &Vec<Ancestor<E>>) -> wd::ResultInner<(), E> {
-        let hchild = E::get_handle(&child).map_err(ErrorInner::<E>::from_io)?;
-
-        for ancestor in states_path.iter().rev() {
-            let is_same = ancestor.is_same(&hchild).map_err(ErrorInner::<E>::from_io)?;
-            if is_same {
-                return Err(ErrorInner::<E>::from_loop(
-                    &ancestor.path,
-                    child.as_ref()
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn is_same_file_system(root_device: &Option<DeviceNum>, dent: &DirEntry<E>) -> wd::ResultInner<bool, E> {
-        let dent_device = E::device_num(dent.path())
-            .map_err(|err| ErrorInner::<E>::from_entry(dent, err))?;
-        Ok(root_device
-            .map(|d| d == dent_device)
-            .expect("BUG: called is_same_file_system without root device"))
-    }
-
-    // fn skippable(&self) -> bool {
-    //     self.depth < self.opts.immut.min_depth || self.depth > self.opts.immut.max_depth
-    // }
-}
-
-
-
-
-/////////////////////////////////////////////////////////////////////////
-//// WalkDirIter
-
-/// WalkDirIter
-pub trait WalkDirIter<E: source::SourceExt>: Sized + Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> {
-
-    /// WalkDirIter
-fn skip_current_dir(&mut self);
-
-    /// WalkDirIter
-    fn into_classic(self) -> ClassicIter<E, Self> {
-        ClassicIter {
-            inner: self,
-        }
-    }
-}
-
-impl<E: source::SourceExt> WalkDirIter<E> for IntoIter<E> {
-    fn skip_current_dir(&mut self) {
-        IntoIter::<E>::skip_current_dir(self);
     }
 }
 
 
 
 
-/////////////////////////////////////////////////////////////////////////
-//// ClassicWalkDirIter
 
-pub trait ClassicWalkDirIter<E: source::SourceExt>: Sized + Iterator<Item = wd::Result<DirEntry<E>, E>> {
-    fn skip_current_dir(&mut self);
-}
-
-
-
-
-/////////////////////////////////////////////////////////////////////////
-//// ClassicIntoIter
-
-pub struct ClassicIter<E, I> 
-where 
-    E: source::SourceExt,
-    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
-{
-    inner: I,
-}
-
-impl<E, I> Iterator for ClassicIter<E, I>
-where 
-    E: source::SourceExt,
-    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
-{
-    type Item = wd::Result<DirEntry<E>, E>;
-
-    /// Advances the iterator and returns the next value.
-    ///
-    /// # Errors
-    ///
-    /// If the iterator fails to retrieve the next value, this method returns
-    /// an error value. The error will be wrapped in an `Option::Some`.
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.inner.next() {
-                Some(Position::Entry(dent)) => return Some(Ok(dent)),
-                Some(Position::Error(err)) => return Some(Err(err)),
-                Some(_) => continue,
-                None => return None,
-            }
-        }
-    }
-}
-
-impl<E, I> ClassicWalkDirIter<E> for ClassicIter<E, I>
-where 
-    E: source::SourceExt,
-    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
-{
-    fn skip_current_dir(&mut self) {
-        self.inner.skip_current_dir();
-    }
-}
-
-
-
-
-/////////////////////////////////////////////////////////////////////////
-//// FilterEntry
-
-/// A recursive directory iterator that skips entries.
-///
-/// Values of this type are created by calling [`.filter_entry()`] on an
-/// `IntoIter`, which is formed by calling [`.into_iter()`] on a `WalkDir`.
-///
-/// Directories that fail the predicate `P` are skipped. Namely, they are
-/// never yielded and never descended into.
-///
-/// Entries that are skipped with the [`min_depth`] and [`max_depth`] options
-/// are not passed through this filter.
-///
-/// If opening a handle to a directory resulted in an error, then it is yielded
-/// and no corresponding call to the predicate is made.
-///
-/// Type parameter `I` refers to the underlying iterator and `P` refers to the
-/// predicate, which is usually `FnMut(&DirEntry) -> bool`.
-///
-/// [`.filter_entry()`]: struct.IntoIter.html#method.filter_entry
-/// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
-/// [`min_depth`]: struct.WalkDir.html#method.min_depth
-/// [`max_depth`]: struct.WalkDir.html#method.max_depth
-#[derive(Debug)]
-pub struct FilterEntry<E, I, P> 
-where
-    E: source::SourceExt,
-    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
-    P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
-{
-    inner: I,
-    predicate: P,
-}
-
-impl<E, I, P> Iterator for FilterEntry<E, I, P>
-where
-    P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
-    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
-    E: source::SourceExt,
-{
-    type Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>;
-
-    /// Advances the iterator and returns the next value.
-    ///
-    /// # Errors
-    ///
-    /// If the iterator fails to retrieve the next value, this method returns
-    /// an error value. The error will be wrapped in an `Option::Some`.
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let item = match self.inner.next() {
-                Some(item) => item,
-                None => return None,
-            };
-
-            if !(self.predicate)(&item) {
-                if let Position::Entry(dent) = item {
-                    if dent.is_dir() {
-                        self.inner.skip_current_dir();
-                    }
-                }
-                continue;
-            }
-
-            return Some(item);
-        }
-    }
-}
-
-impl<E, I, P> FilterEntry<E, I, P>
-where
-    P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
-    I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
-    E: source::SourceExt,
-{
-    /// Yields only entries which satisfy the given predicate and skips
-    /// descending into directories that do not satisfy the given predicate.
-    ///
-    /// The predicate is applied to all entries. If the predicate is
-    /// true, iteration carries on as normal. If the predicate is false, the
-    /// entry is ignored and if it is a directory, it is not descended into.
-    ///
-    /// This is often more convenient to use than [`skip_current_dir`]. For
-    /// example, to skip hidden files and directories efficiently on unix
-    /// systems:
-    ///
-    /// ```no_run
-    /// use walkdir::{DirEntry, WalkDir};
-    /// # use walkdir::Error;
-    ///
-    /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
-    ///          .map(|s| s.starts_with("."))
-    ///          .unwrap_or(false)
-    /// }
-    ///
-    /// # fn try_main() -> Result<(), Error> {
-    /// for entry in <WalkDir>::new("foo")
-    ///                      .into_iter()
-    ///                      .filter_entry(|e| !is_hidden(e)) {
-    ///     println!("{}", entry?.path().display());
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Note that the iterator will still yield errors for reading entries that
-    /// may not satisfy the predicate.
-    ///
-    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
-    /// passed to this predicate.
-    ///
-    /// Note that if the iterator has `contents_first` enabled, then this
-    /// method is no different than calling the standard `Iterator::filter`
-    /// method (because directory entries are yielded after they've been
-    /// descended into).
-    ///
-    /// [`skip_current_dir`]: #method.skip_current_dir
-    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
-    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    pub fn filter_entry(self, predicate: P) -> FilterEntry<E, Self, P> {
-        FilterEntry { inner: self, predicate: predicate }
-    }
-
-    /// Skips the current directory.
-    ///
-    /// This causes the iterator to stop traversing the contents of the least
-    /// recently yielded directory. This means any remaining entries in that
-    /// directory will be skipped (including sub-directories).
-    ///
-    /// Note that the ergonomics of this method are questionable since it
-    /// borrows the iterator mutably. Namely, you must write out the looping
-    /// condition manually. For example, to skip hidden entries efficiently on
-    /// unix systems:
-    ///
-    /// ```no_run
-    /// use walkdir::{DirEntry, WalkDir};
-    ///
-    /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
-    ///          .map(|s| s.starts_with("."))
-    ///          .unwrap_or(false)
-    /// }
-    ///
-    /// let mut it = <WalkDir>::new("foo").into_iter();
-    /// loop {
-    ///     let entry = match it.next() {
-    ///         None => break,
-    ///         Some(Err(err)) => panic!("ERROR: {}", err),
-    ///         Some(Ok(entry)) => entry,
-    ///     };
-    ///     if is_hidden(&entry) {
-    ///         if entry.file_type().is_dir() {
-    ///             it.skip_current_dir();
-    ///         }
-    ///         continue;
-    ///     }
-    ///     println!("{}", entry.path().display());
-    /// }
-    /// ```
-    ///
-    /// You may find it more convenient to use the [`filter_entry`] iterator
-    /// adapter. (See its documentation for the same example functionality as
-    /// above.)
-    ///
-    /// [`filter_entry`]: #method.filter_entry
-    pub fn skip_current_dir(&mut self) {
-        self.inner.skip_current_dir();
-    }
-}
-
-impl<E, I, P> WalkDirIter<E> for FilterEntry<E, I, P>
-    where
-        P: FnMut(&Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>) -> bool,
-        I: Iterator<Item = Position<Option<DirEntry<E>>, DirEntry<E>, Error<E>>> + WalkDirIter<E>,
-        E: source::SourceExt,
-{
-    fn skip_current_dir(&mut self) {
-        self.inner.skip_current_dir();
-    }
-}
-
-
-
-
-/////////////////////////////////////////////////////////////////////////
-//// FilterEntry
-
-/// A recursive directory iterator that skips entries.
-///
-/// Values of this type are created by calling [`.filter_entry()`] on an
-/// `IntoIter`, which is formed by calling [`.into_iter()`] on a `WalkDir`.
-///
-/// Directories that fail the predicate `P` are skipped. Namely, they are
-/// never yielded and never descended into.
-///
-/// Entries that are skipped with the [`min_depth`] and [`max_depth`] options
-/// are not passed through this filter.
-///
-/// If opening a handle to a directory resulted in an error, then it is yielded
-/// and no corresponding call to the predicate is made.
-///
-/// Type parameter `I` refers to the underlying iterator and `P` refers to the
-/// predicate, which is usually `FnMut(&DirEntry) -> bool`.
-///
-/// [`.filter_entry()`]: struct.IntoIter.html#method.filter_entry
-/// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
-/// [`min_depth`]: struct.WalkDir.html#method.min_depth
-/// [`max_depth`]: struct.WalkDir.html#method.max_depth
-#[derive(Debug)]
-pub struct ClassicFilterEntry<E, I, P> 
-where
-    E: source::SourceExt,
-    I: Iterator<Item = wd::Result<DirEntry<E>, E>> + ClassicWalkDirIter<E>,
-    P: FnMut(&DirEntry<E>) -> bool,
-{
-    inner: I,
-    predicate: P,
-}
-
-impl<E, I, P> Iterator for ClassicFilterEntry<E, I, P>
-where
-    E: source::SourceExt,
-    I: Iterator<Item = wd::Result<DirEntry<E>, E>> + ClassicWalkDirIter<E>,
-    P: FnMut(&DirEntry<E>) -> bool,
-{
-    type Item = wd::Result<DirEntry<E>, E>;
-
-    /// Advances the iterator and returns the next value.
-    ///
-    /// # Errors
-    ///
-    /// If the iterator fails to retrieve the next value, this method returns
-    /// an error value. The error will be wrapped in an `Option::Some`.
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let item = match self.inner.next() {
-                Some(item) => item,
-                None => return None,
-            };
-
-            match item {
-                Ok(dent) => {
-                    if !(self.predicate)(&dent) {
-                        if dent.is_dir() {
-                            self.inner.skip_current_dir();
-                        }
-                        continue;
-                    }
-                    return Some(Ok(dent));
-                },
-                Err(err) => return Some(Err(err)),
-            }
-
-        }
-    }
-}
-
-impl<E, I, P> ClassicFilterEntry<E, I, P>
-where
-    E: source::SourceExt,
-    I: Iterator<Item = wd::Result<DirEntry<E>, E>> + ClassicWalkDirIter<E>,
-    P: FnMut(&DirEntry<E>) -> bool,
-{
-    /// Yields only entries which satisfy the given predicate and skips
-    /// descending into directories that do not satisfy the given predicate.
-    ///
-    /// The predicate is applied to all entries. If the predicate is
-    /// true, iteration carries on as normal. If the predicate is false, the
-    /// entry is ignored and if it is a directory, it is not descended into.
-    ///
-    /// This is often more convenient to use than [`skip_current_dir`]. For
-    /// example, to skip hidden files and directories efficiently on unix
-    /// systems:
-    ///
-    /// ```no_run
-    /// use walkdir::{DirEntry, WalkDir};
-    /// # use walkdir::Error;
-    ///
-    /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
-    ///          .map(|s| s.starts_with("."))
-    ///          .unwrap_or(false)
-    /// }
-    ///
-    /// # fn try_main() -> Result<(), Error> {
-    /// for entry in <WalkDir>::new("foo")
-    ///                      .into_iter()
-    ///                      .filter_entry(|e| !is_hidden(e)) {
-    ///     println!("{}", entry?.path().display());
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Note that the iterator will still yield errors for reading entries that
-    /// may not satisfy the predicate.
-    ///
-    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
-    /// passed to this predicate.
-    ///
-    /// Note that if the iterator has `contents_first` enabled, then this
-    /// method is no different than calling the standard `Iterator::filter`
-    /// method (because directory entries are yielded after they've been
-    /// descended into).
-    ///
-    /// [`skip_current_dir`]: #method.skip_current_dir
-    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
-    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    pub fn filter_entry(self, predicate: P) -> ClassicFilterEntry<E, Self, P> {
-        ClassicFilterEntry::<E, _, _> { inner: self, predicate: predicate }
-    }
-
-    /// Skips the current directory.
-    ///
-    /// This causes the iterator to stop traversing the contents of the least
-    /// recently yielded directory. This means any remaining entries in that
-    /// directory will be skipped (including sub-directories).
-    ///
-    /// Note that the ergonomics of this method are questionable since it
-    /// borrows the iterator mutably. Namely, you must write out the looping
-    /// condition manually. For example, to skip hidden entries efficiently on
-    /// unix systems:
-    ///
-    /// ```no_run
-    /// use walkdir::{DirEntry, WalkDir};
-    ///
-    /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
-    ///          .map(|s| s.starts_with("."))
-    ///          .unwrap_or(false)
-    /// }
-    ///
-    /// let mut it = <WalkDir>::new("foo").into_iter();
-    /// loop {
-    ///     let entry = match it.next() {
-    ///         None => break,
-    ///         Some(Err(err)) => panic!("ERROR: {}", err),
-    ///         Some(Ok(entry)) => entry,
-    ///     };
-    ///     if is_hidden(&entry) {
-    ///         if entry.file_type().is_dir() {
-    ///             it.skip_current_dir();
-    ///         }
-    ///         continue;
-    ///     }
-    ///     println!("{}", entry.path().display());
-    /// }
-    /// ```
-    ///
-    /// You may find it more convenient to use the [`filter_entry`] iterator
-    /// adapter. (See its documentation for the same example functionality as
-    /// above.)
-    ///
-    /// [`filter_entry`]: #method.filter_entry
-    pub fn skip_current_dir(&mut self) {
-        self.inner.skip_current_dir();
-    }
-}
-
-impl<E, I, P> ClassicWalkDirIter<E> for ClassicFilterEntry<E, I, P>
-where
-    E: source::SourceExt,
-    I: Iterator<Item = wd::Result<DirEntry<E>, E>> + ClassicWalkDirIter<E>,
-    P: FnMut(&DirEntry<E>) -> bool,
-{
-    fn skip_current_dir(&mut self) {
-        self.inner.skip_current_dir();
-    }
-}

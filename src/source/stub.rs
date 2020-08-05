@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io;
 
-use crate::dent::DirEntry;
+use crate::rawdent::RawDirEntry;
 
 /// Useful stub for nothing
 #[derive(Debug, Clone, Default)]
@@ -14,7 +14,7 @@ impl SourceExt for Nil {
     type OptionsExt = Nil;
     type IntoIterExt = Nil;
     type AncestorExt = Nil;
-    type DirEntryExt = Nil;
+    type RawDirEntryExt = Nil;
 
     type FsFileName = std::ffi::OsStr;
     type FsDirEntry = std::fs::DirEntry;
@@ -40,7 +40,7 @@ impl SourceExt for Nil {
     }
 
     #[allow(unused_variables)]
-    fn ancestor_new(dent: &DirEntry<Self>) -> io::Result<Self::AncestorExt> {
+    fn ancestor_new(dent: &RawDirEntry<Self>) -> io::Result<Self::AncestorExt> {
         Ok(Self {})
     }
 
@@ -67,30 +67,32 @@ impl SourceExt for Nil {
     }
 
     /// Get metadata for symlink
+    #[allow(unused_variables)]
     fn symlink_metadata_internal(
-        dent: &DirEntry<Self>,
+        raw_dent: &RawDirEntry<Self>,
+        raw_dent_ext: &Self::RawDirEntryExt,
     ) -> io::Result<Self::FsMetadata> {
-        Self::symlink_metadata(dent.path())
+        Self::symlink_metadata(raw_dent.path())
     }
 
     #[allow(unused_variables)]
     fn read_dir<P: AsRef<Self::Path>>(
-        dent: &DirEntry<Self>,
+        dent: &RawDirEntry<Self>,
         path: P,
     ) -> io::Result<Self::FsReadDir> {
         fs::read_dir(path.as_ref())
     }
 
     #[allow(unused_variables)]
-    fn dent_from_fsentry(
+    fn rawdent_from_fsentry(
         ent: &Self::FsDirEntry,
-    ) -> io::Result<Self::DirEntryExt> {
-        Ok(Self::DirEntryExt {})
+    ) -> io::Result<Self::RawDirEntryExt> {
+        Ok(Self::RawDirEntryExt {})
     }
 
     #[allow(unused_variables)]
-    fn dent_from_metadata(md: Self::FsMetadata) -> Self::DirEntryExt {
-        Self::DirEntryExt {}
+    fn rawdent_from_metadata(md: Self::FsMetadata) -> Self::RawDirEntryExt {
+        Self::RawDirEntryExt {}
     }
 
     #[allow(unused_variables)]

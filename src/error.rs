@@ -4,7 +4,8 @@ use std::io;
 
 use crate::source;
 use crate::source::{SourcePath, SourcePathBuf};
-use crate::DirEntry;
+use crate::rawdent::RawDirEntry;
+
 
 /// An error produced by recursively walking a directory.
 ///
@@ -48,9 +49,9 @@ impl<E: source::SourceExt> ErrorInner<E> {
         }
     }
 
-    pub(crate) fn from_entry(dent: &DirEntry<E>, err: io::Error) -> Self {
+    pub(crate) fn from_entry(raw_dent: &RawDirEntry<E>, err: io::Error) -> Self {
         Self::Io {
-            path: Some(dent.path().to_path_buf()),
+            path: Some(raw_dent.path().to_path_buf()),
             err: Some(err),
         }
     }
