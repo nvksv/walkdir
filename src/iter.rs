@@ -6,7 +6,8 @@ use crate::dent::DirEntryExt;
 use crate::source;
 use crate::walk::IntoIter;
 
-type WalkDirIteratorItem<E> = Position<DirEntry<E>, DirEntry<E>, Error<E>>;
+/// Type of item for Iterators
+pub type WalkDirIteratorItem<E> = Position<DirEntry<E>, DirEntry<E>, Error<E>>;
 
 /////////////////////////////////////////////////////////////////////////
 //// WalkDirIter

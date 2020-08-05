@@ -17,7 +17,7 @@ fn check_defaulted_generic_parameter() {
 
 #[test]
 fn send_sync_traits() {
-    use crate::{FilterEntry, IntoIter};
+    use crate::{source, FilterEntry, IntoIter, WalkDirIteratorItem};
 
     fn assert_send<T: Send>() {}
     fn assert_sync<T: Sync>() {}
@@ -26,8 +26,8 @@ fn send_sync_traits() {
     assert_sync::<WalkDir>();
     assert_send::<IntoIter>();
     assert_sync::<IntoIter>();
-    // assert_send::<FilterEntry<source::DefaultSourceExt, IntoIter, |_| true>>();
-    // assert_sync::<FilterEntry<source::DefaultSourceExt, IntoIter, |_| true>>();
+    // assert_send::<FilterEntry<source::DefaultSourceExt, IntoIter, (dyn FnMut(&WalkDirIteratorItem<source::DefaultSourceExt>) -> bool + Send)>>();
+    // assert_sync::<FilterEntry<source::DefaultSourceExt, IntoIter, (dyn FnMut(&WalkDirIteratorItem<source::DefaultSourceExt>) -> bool) + Sync>>();
 }
 
 #[test]
@@ -839,6 +839,52 @@ fn contents_first() {
     r.assert_no_errors();
 
     let expected = vec![dir.join("a"), dir.path().to_path_buf()];
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
+fn classic_contents_first_ordered() {
+    let dir = Dir::tmp();
+    dir.mkdirp("foo");
+    dir.mkdirp("foo/bar");
+    dir.mkdirp("baz");
+    dir.mkdirp("zzz");
+    dir.touch_all(&["a", "b", "c"]);
+    dir.touch_all(&["foo/a", "foo/b", "foo/c"]);
+    dir.touch_all(&["foo/bar/a", "foo/bar/b", "foo/bar/c"]);
+    dir.touch_all(&["zzz/a", "zzz/b", "zzz/c"]);
+    dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
+
+    let wd = <WalkDir>::new(dir.path()).contents_first(false).content_order(ContentOrder::FilesFirst).sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()));
+    let r = wd.map(|pos| {
+        match pos {
+            Position::Entry(dent) =>
+        }
+    });
+    r.assert_no_errors();
+
+    let expected = vec![
+        dir.path().to_path_buf(),
+        dir.join("a"),
+        dir.join("b"),
+        dir.join("c"),
+        dir.join("baz"),
+        dir.join("baz").join("a"),
+        dir.join("baz").join("b"),
+        dir.join("baz").join("c"),
+        dir.join("foo"),
+        dir.join("foo").join("a"),
+        dir.join("foo").join("b"),
+        dir.join("foo").join("c"),
+        dir.join("foo").join("bar"),
+        dir.join("foo").join("bar").join("a"),
+        dir.join("foo").join("bar").join("b"),
+        dir.join("foo").join("bar").join("c"),
+        dir.join("zzz"),
+        dir.join("zzz").join("a"),
+        dir.join("zzz").join("b"),
+        dir.join("zzz").join("c"),
+    ];
     assert_eq!(expected, r.paths());
 }
 
