@@ -40,7 +40,7 @@ macro_rules! rtry {
 
 macro_rules! process_dent {
     ($self:expr, $depth:expr) => {
-        ((|depth, opts_immut, root_device| move |raw_dent: RawDirEntry<E>| Self::process_rawdent(raw_dent, depth, opts_immut, root_device))($depth, &$self.opts.immut, &$self.root_device))
+        ((|depth, opts_immut, root_device, ancestors| move |raw_dent: RawDirEntry<E>| Self::process_rawdent(raw_dent, depth, opts_immut, root_device, ancestors))($depth, &$self.opts.immut, &$self.root_device, &$self.ancestors))
     };
 }
 
@@ -62,10 +62,10 @@ struct Ancestor<E: source::SourceExt> {
 
 impl<E: source::SourceExt> Ancestor<E> {
     /// Create a new ancestor from the given directory path.
-    fn new(raw_dent: &RawDirEntry<E>) -> io::Result<Self> {
+    fn new(raw_dent: &RawDirEntry<E>) -> wd::ResultInner<Self, E> {
         Ok(Self {
             path: raw_dent.path().to_path_buf(),
-            ext: E::ancestor_new(raw_dent)?,
+            ext: E::ancestor_new(raw_dent).map_err(|err| ErrorInner::<E>::from_io(err))?,
         })
     }
 
@@ -128,7 +128,7 @@ pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
     /// cases this stack is empty.
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    states_path: Vec<Ancestor<E>>,
+    ancestors: Vec<Ancestor<E>>,
     /// An index into `states` that points to the oldest open directory
     /// handle. If the maximum fd limit is reached and a new directory needs to
     /// be read, the handle at this index is closed before the new directory is
@@ -156,7 +156,7 @@ impl<E: source::SourceExt> IntoIter<E> {
             start: Some(root),
             states: vec![],
             transition_state: TransitionState::None,
-            states_path: vec![],
+            ancestors: vec![],
             oldest_opened: 0,
             depth: 0,
             root_device: None,
@@ -168,12 +168,13 @@ impl<E: source::SourceExt> IntoIter<E> {
     // - Some(Ok((dent, is_dir))) -- normal entry to yielding
     // - Some(Err(_)) -- some error occured
     // - None -- entry must be ignored
-    fn process_rawdent(raw_dent: RawDirEntry<E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>) -> Option<wd::ResultInner<FlatDirEntry<E>, E>> {
+    fn process_rawdent(raw_dent: RawDirEntry<E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>, ancestors: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<FlatDirEntry<E>, E>> {
         
-        let (new_raw_dent, follow_link) = if raw_dent.file_type().is_symlink() && opts_immut.follow_links {
-            (ortry!(Self::follow(raw_dent)), true)
+        let (new_raw_dent, loop_link, follow_link) = if raw_dent.file_type().is_symlink() && opts_immut.follow_links {
+            let (new_raw_dent, loop_link) = ortry!(Self::follow(raw_dent, ancestors));
+            (new_raw_dent, loop_link, true)
         } else {
-            (raw_dent, false)
+            (raw_dent, None, false)
         };
 
         let mut is_normal_dir = !new_raw_dent.file_type().is_symlink() && new_raw_dent.is_dir();
@@ -201,7 +202,8 @@ impl<E: source::SourceExt> IntoIter<E> {
         Some(Ok(FlatDirEntry{ 
             raw: new_raw_dent, 
             is_dir: is_normal_dir, 
-            follow_link 
+            follow_link,
+            loop_link, 
         }))
     }
 
@@ -213,16 +215,23 @@ impl<E: source::SourceExt> IntoIter<E> {
         }
         let raw_dent = rtry!(RawDirEntry::<E>::from_path(root, false));
 
-        self.push_dir_raw(raw_dent, 0)?;
+        self.push_root(raw_dent, 0)?;
+
+        Ok(())
+    }
+
+    fn push_root(&mut self, dent: RawDirEntry<E>, new_depth: usize) -> wd::ResultInner<(), E> {
+
+        let state = DirState::<E>::new_once( dent.clone(), new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) );
+
+        self.states.push(state);
 
         Ok(())
     }
 
     fn push_dir(&mut self, dent: DirEntry<E>, new_depth: usize) -> wd::ResultInner<(), E> {
-        self.push_dir_raw( dent.into_raw(), new_depth )
-    }
 
-    fn push_dir_raw(&mut self, dent: RawDirEntry<E>, new_depth: usize) -> wd::ResultInner<(), E> {
+        let fdent = dent.into_flat();
 
         // Make room for another open file descriptor if we've hit the max.
         let free = self.states.len().checked_sub(self.oldest_opened).unwrap();
@@ -231,26 +240,19 @@ impl<E: source::SourceExt> IntoIter<E> {
             state.load_all(&self.opts.immut, &process_dent!(self, new_depth) );
         }
 
-        let state = if new_depth == 0 { 
-            DirState::<E>::new_once( dent.clone(), new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) ) 
-        } else {
-            // Open a handle to reading the directory's entries.
-            let rd = E::read_dir(&dent, dent.path()).map_err(|err| ErrorInner::<E>::from_path(dent.path().to_path_buf(), err));
-            DirState::<E>::new( rd, new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) )
-        };
+        // Open a handle to reading the directory's entries.
+        let rd = E::read_dir(&fdent.raw, fdent.raw.path()).map_err(|err| ErrorInner::<E>::from_path(fdent.raw.path().to_path_buf(), err));
+        let state = DirState::<E>::new( rd, new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) );
 
         if self.opts.immut.follow_links {
             // The only way a symlink can cause a loop is if it points
             // to a directory. Otherwise, it always points to a leaf
             // and we can omit any loop checks.
-            if dent.is_dir() {
-                self.check_loop(dent.path())?;
+            if fdent.is_dir {
+                assert!(fdent.loop_link.is_none())
             }
 
-            let ancestor = Ancestor::new(&dent)
-                .map_err(|err| ErrorInner::<E>::from_io(err))?;
-
-            self.states_path.push(ancestor);
+            self.ancestors.push(Ancestor::new(&fdent.raw)?);
         }
 
         // We push this after states_path since creating the Ancestor can fail.
@@ -273,20 +275,19 @@ impl<E: source::SourceExt> IntoIter<E> {
             // never overflow.
             self.oldest_opened = self.oldest_opened.checked_add(1).unwrap();
         }
+
         Ok(())
     }
 
     fn pop_dir(&mut self) {
         self.states.pop().expect("BUG: cannot pop from empty stack");
         if self.opts.immut.follow_links {
-            self.states_path.pop().expect("BUG: list/path stacks out of sync");
+            self.ancestors.pop().expect("BUG: list/path stacks out of sync");
         }
         // If everything in the stack is already closed, then there is
         // room for at least one more open descriptor and it will
         // always be at the top of the stack.
         self.oldest_opened = cmp::min(self.oldest_opened, self.states.len());
-
-        self.transition_state = TransitionState::AfterPopUp;
     }
 
     /// Skips the current directory.
@@ -301,7 +302,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     /// unix systems:
     ///
     /// ```no_run
-    /// use walkdir::{DirEntry, WalkDir};
+    /// use walkdir::{DirEntry, WalkDir, WalkDirIter, ClassicWalkDirIter};
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
     ///     entry.file_name()
@@ -310,7 +311,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     ///          .unwrap_or(false)
     /// }
     ///
-    /// let mut it = <WalkDir>::new("foo").into_iter();
+    /// let mut it = <WalkDir>::new("foo").into_classic();
     /// loop {
     ///     let entry = match it.next() {
     ///         None => break,
@@ -333,34 +334,53 @@ impl<E: source::SourceExt> IntoIter<E> {
     ///
     /// [`filter_entry`]: #method.filter_entry
     pub fn skip_current_dir(&mut self) {
-        if !self.states.is_empty() {
-            self.pop_dir();
+        if let Some(cur_state) = self.states.last_mut() {
+            cur_state.skip_all();
+            self.transition_state = TransitionState::None;
         }
     }
 
 
 
-    fn follow(raw_dent: RawDirEntry<E>) -> wd::ResultInner<RawDirEntry<E>, E> {
+    fn follow(raw_dent: RawDirEntry<E>, ancestors: &Vec<Ancestor<E>>) -> wd::ResultInner<(RawDirEntry<E>, Option<usize>), E> {
         let dent = RawDirEntry::<E>::from_path(
             raw_dent.path().to_path_buf(),
             true,
         )?;
-        Ok(dent)
+
+        let loop_link = if dent.is_dir() && !ancestors.is_empty(){
+            Self::check_loop(dent.path(), ancestors)?
+        } else {
+            None
+        };
+
+        Ok((dent, loop_link))
     }
 
-    fn check_loop<P: AsRef<E::Path>>(&self, child: P) -> wd::ResultInner<(), E> {
+    fn check_loop<P: AsRef<E::Path>>(child: P, ancestors: &Vec<Ancestor<E>>) -> wd::ResultInner<Option<usize>, E> {
+        
         let hchild = E::get_handle(&child).map_err(ErrorInner::<E>::from_io)?;
 
-        for ancestor in self.states_path.iter().rev() {
+        for (index, ancestor) in ancestors.iter().enumerate().rev() {
             let is_same = ancestor.is_same(&hchild).map_err(ErrorInner::<E>::from_io)?;
             if is_same {
-                return Err(ErrorInner::<E>::from_loop(
-                    &ancestor.path,
-                    child.as_ref()
-                ));
+                return Ok(Some(index));
             }
         }
-        Ok(())
+
+        Ok(None)
+
+    }
+
+    fn make_loop_error<P: AsRef<E::Path>>(&self, index: usize, child: P) -> ErrorInner<E> {
+        
+        let ancestor = self.ancestors.get(index).unwrap();
+        
+        ErrorInner::<E>::from_loop(
+            &ancestor.path,
+            child.as_ref()
+        )
+
     }
 
     fn is_same_file_system(root_device: &Option<DeviceNum>, dent: &RawDirEntry<E>) -> wd::ResultInner<bool, E> {
@@ -388,7 +408,7 @@ impl<E: source::SourceExt> IntoIter<E> {
 
 
 impl<E: source::SourceExt> Iterator for IntoIter<E> {
-    type Item = Position<Option<DirEntry<E>>, DirEntry<E>, wd::Error<E>>;
+    type Item = Position<DirEntry<E>, DirEntry<E>, wd::Error<E>>;
     /// Advances the iterator and returns the next value.
     ///
     /// # Errors
@@ -396,6 +416,17 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
     /// If the iterator fails to retrieve the next value, this method returns
     /// an error value. The error will be wrapped in an Option::Some.
     fn next(&mut self) -> Option<Self::Item> {
+
+        fn get_parent_dent<E>(this: &mut IntoIter<E>, cur_depth: usize) -> DirEntry<E> where E: source::SourceExt {
+            let prev_state = this.states.get_mut(cur_depth-1).unwrap();
+            match prev_state.get_current_position() {
+                Position::Entry(dent) => {
+                    return dent;
+                },
+                _ => unreachable!(),
+            }
+        }
+
         // Initial actions
         if let Some(start) = self.start.take() {
             if let Err(e) = self.init(start) {
@@ -406,7 +437,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
 
         loop {
             let cur_depth = match self.states.len() {
-                0 => return None,
+                0 => unreachable!(),
                 len @ _ => (len-1),
             }; 
 
@@ -418,48 +449,57 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                     
                     cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
 
-                    if cur_depth >= 1 {
-                        let prev_state = self.states.get_mut(cur_depth-1).unwrap();
-                        match prev_state.get_current_position() {
-                            Position::Entry(dent) => {
-                                return Some(Position::BeforeContent(Some(dent)));
-                            },
-                            _ => unreachable!(),
-                        }
-                    } else {
-                        return Some(Position::BeforeContent(None));
+                    if cur_depth == 0 {
+                        continue;
                     }
+
+                    return Some(Position::BeforeContent(get_parent_dent(self, cur_depth)));
                 }, 
                 Position::Entry(dent) => {
+                    let allow_yield = (cur_state.depth() >= self.opts.immut.min_depth) && (if dent.loop_link().is_some() {self.opts.immut.yield_loop_links} else {true});
+
                     if dent.is_dir() {
+                        let allow_push = cur_state.depth() < self.opts.immut.max_depth;
+
                         match self.transition_state {
-                            TransitionState::AfterPopUp => {
-                                self.transition_state = TransitionState::None;
-                                cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
-                                if self.opts.immut.contents_first {
-                                    if cur_state.depth() >= self.opts.immut.min_depth {
-                                        return Some(Position::Entry(dent));
-                                    }
-                                };
-                            },
-                            TransitionState::BeforePushDown => {
-                                self.transition_state = TransitionState::None;
-                                if let Err(e) = self.push_dir( dent, cur_depth+1 ) {
-                                    self.transition_state = TransitionState::AfterPopUp;
-                                    return Some(Position::Error(wd::Error::from_inner(e, cur_depth)));
-                                };
-                            },
                             TransitionState::None => {
-                                if cur_state.depth() < self.opts.immut.max_depth {
+                                if allow_push {
                                     self.transition_state = TransitionState::BeforePushDown;
                                 } else {
                                     self.transition_state = TransitionState::AfterPopUp;
                                 }
 
-                                if !self.opts.immut.contents_first {
-                                    if cur_state.depth() >= self.opts.immut.min_depth {
-                                        return Some(Position::Entry(dent));
+                                if !self.opts.immut.contents_first && allow_yield {
+                                    return Some(Position::Entry(dent));
+                                };
+                            },
+                            TransitionState::BeforePushDown => {
+                                self.transition_state = TransitionState::None;
+
+                                if let Some(loop_depth) = dent.loop_link() {
+                                    self.transition_state = TransitionState::AfterPopUp;
+                                    if !self.opts.immut.yield_loop_links {
+                                        let err = self.make_loop_error(loop_depth, dent.path());
+                                        return Some(Position::Error(wd::Error::from_inner(err, cur_depth)));
                                     }
+                                    continue
+                                }
+
+                                match self.push_dir( dent, cur_depth+1 ) {
+                                    Ok(_) => {},
+                                    Err(err) => {
+                                        self.transition_state = TransitionState::AfterPopUp;
+                                        return Some(Position::Error(wd::Error::from_inner(err, cur_depth)));
+                                    }
+                                }
+                            },
+                            TransitionState::AfterPopUp => {
+                                self.transition_state = TransitionState::None;
+
+                                cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
+
+                                if self.opts.immut.contents_first && allow_yield {
+                                    return Some(Position::Entry(dent));
                                 };
                             },
                             _ => unreachable!(),
@@ -470,7 +510,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
 
                         cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
 
-                        if cur_state.depth() >= self.opts.immut.min_depth {
+                        if allow_yield {
                             return Some(Position::Entry(dent));
                         }
                     }
@@ -482,6 +522,10 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                     return Some(Position::Error(e));
                 },
                 Position::AfterContent => {
+                    if cur_depth == 0 {
+                        return None;
+                    }
+
                     match self.transition_state {
                         TransitionState::None => {
                             self.transition_state = TransitionState::BeforePopUp;

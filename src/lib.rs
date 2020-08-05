@@ -31,11 +31,11 @@ The following code recursively iterates over the directory given and prints
 the path for each entry:
 
 ```no_run
-use walkdir::WalkDir;
+use walkdir::{WalkDir, WalkDirIter, ClassicWalkDirIter};
 # use walkdir::Error;
 
 # fn try_main() -> Result<(), Error> {
-for entry in <WalkDir>::new("foo") {
+for entry in <WalkDir>::new("foo").into_classic() {
     println!("{}", entry?.path().display());
 }
 # Ok(())
@@ -48,9 +48,9 @@ directories that the owner of the running process does not have permission to
 access.)
 
 ```no_run
-use walkdir::WalkDir;
+use walkdir::{WalkDir, WalkDirIter, ClassicWalkDirIter};
 
-for entry in <WalkDir>::new("foo").into_iter().filter_map(|e| e.ok()) {
+for entry in <WalkDir>::new("foo").into_classic().filter_map(|e| e.ok()) {
     println!("{}", entry.path().display());
 }
 ```
@@ -62,11 +62,11 @@ for entry in <WalkDir>::new("foo").into_iter().filter_map(|e| e.ok()) {
 The same code as above, except [`follow_links`] is enabled:
 
 ```no_run
-use walkdir::WalkDir;
+use walkdir::{WalkDir, WalkDirIter, ClassicWalkDirIter};
 # use walkdir::Error;
 
 # fn try_main() -> Result<(), Error> {
-for entry in <WalkDir>::new("foo").follow_links(true) {
+for entry in <WalkDir>::new("foo").follow_links(true).into_classic() {
     println!("{}", entry?.path().display());
 }
 # Ok(())
@@ -81,7 +81,7 @@ This uses the [`filter_entry`] iterator adapter to avoid yielding hidden files
 and directories efficiently (i.e. without recursing into hidden directories):
 
 ```no_run
-use walkdir::{DirEntry, WalkDir};
+use walkdir::{DirEntry, WalkDir, WalkDirIter, ClassicWalkDirIter};
 # use walkdir::Error;
 
 fn is_hidden(entry: &DirEntry) -> bool {
@@ -92,7 +92,7 @@ fn is_hidden(entry: &DirEntry) -> bool {
 }
 
 # fn try_main() -> Result<(), Error> {
-let walker = <WalkDir>::new("foo").into_iter();
+let walker = <WalkDir>::new("foo").into_classic();
 for entry in walker.filter_entry(|e| !is_hidden(e)) {
     println!("{}", entry?.path().display());
 }
@@ -128,7 +128,7 @@ pub use crate::dent::DirEntryExt;
 
 pub use crate::opts::WalkDir;
 pub use crate::walk::IntoIter;
-pub use crate::iter::{FilterEntry, WalkDirIter};
+pub use crate::iter::{FilterEntry, WalkDirIter, ClassicWalkDirIter};
 pub use crate::wd::{Position, ContentFilter, ContentOrder};
 
 

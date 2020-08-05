@@ -7,7 +7,7 @@ use std::result;
 
 use crate::source;
 use crate::source::{SourcePath, SourcePathBuf};
-use crate::{Position, DirEntry, Error};
+use crate::{DirEntry, Error};
 
 /// Create an error from a format!-like syntax.
 #[macro_export]

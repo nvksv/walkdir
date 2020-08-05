@@ -49,6 +49,8 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// Is set when this entry was created from a symbolic link and the user
     /// expects the iterator to follow symbolic links.
     follow_link: bool,
+    /// Is loop link
+    loop_link: Option<usize>,
     /// The depth at which this entry was generated relative to the root.
     depth: usize,
 }
@@ -160,31 +162,28 @@ impl<E: source::SourceExt> DirEntry<E> {
         self.depth
     }
 
-    // /// Sets the depth at which this entry was created relative to the root.
-    // pub(crate) fn set_depth(mut self, depth: usize) -> Self {
-    //     self.depth = depth;
-    //     self
-    // }
-
-    // pub(crate) fn set_depth_mut(&mut self, depth: usize) {
-    //     self.depth = depth;
-    // }
-
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
         self.is_dir
+    }
+
+    /// Returns true if and only if this entry points to a directory.
+    pub(crate) fn loop_link(&self) -> Option<usize> {
+        self.loop_link
     }
 
     pub(crate) fn from_raw(
         raw: RawDirEntry<E>,
         is_dir: bool,
         follow_link: bool,
+        loop_link: Option<usize>,
         depth: usize,
     ) -> Self {
         Self {
             raw,
             is_dir,
             follow_link,
+            loop_link,
             depth
         }
     }
@@ -197,12 +196,18 @@ impl<E: source::SourceExt> DirEntry<E> {
             raw: flat.raw,
             follow_link: flat.follow_link,
             is_dir: flat.is_dir,
+            loop_link: flat.loop_link,
             depth,
         }
     }
 
-    pub(crate) fn into_raw(self) -> RawDirEntry<E> {
-        self.raw
+    pub(crate) fn into_flat(self) -> FlatDirEntry<E> {
+        FlatDirEntry::<E> {
+            raw: self.raw,
+            follow_link: self.follow_link,
+            is_dir: self.is_dir,
+            loop_link: self.loop_link,
+        }
     }
 }
 
@@ -212,6 +217,7 @@ impl<E: source::SourceExt> Clone for DirEntry<E> {
             raw: self.raw.clone(),
             is_dir: self.is_dir,
             follow_link: self.follow_link,
+            loop_link: self.loop_link.clone(),
             depth: self.depth,
         }
     }
@@ -223,6 +229,7 @@ impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
             .field("raw", &self.raw)
             .field("is_dir", &self.is_dir)
             .field("follow_link", &self.follow_link)
+            .field("loop_link", &self.loop_link)
             .field("depth", &self.depth)
             .finish()
     }

@@ -212,12 +212,6 @@ impl<E: source::SourceExt> Error<E> {
         self.depth
     }
 
-    // /// Sets the depth at which this error occurred relative to the root.
-    // pub(crate) fn set_depth(mut self, depth: usize) -> Self {
-    //     self.depth = depth;
-    //     self
-    // }
-
     /// Inspect the original [`io::Error`] if there is one.
     ///
     /// [`None`] is returned if the [`Error`] doesn't correspond to an
@@ -240,7 +234,7 @@ impl<E: source::SourceExt> Error<E> {
     ///
     /// use walkdir::WalkDir;
     ///
-    /// for entry in <WalkDir>::new("foo") {
+    /// for entry in <WalkDir>::new("foo").into_classic() {
     ///     match entry {
     ///         Ok(entry) => println!("{}", entry.path().display()),
     ///         Err(err) => {

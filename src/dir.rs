@@ -146,8 +146,12 @@ pub struct FlatDirEntry<E: source::SourceExt> {
     /// Is set when this entry was created from a symbolic link and the user
     /// expects the iterator to follow symbolic links.
     pub follow_link: bool,
-    /// This entry is a dir and will be walked recursive
+    /// This entry is a dir and will be walked recursive.
     pub is_dir: bool,
+    /// This entry is symlink to loop.
+    /// - Some(index) => is loop to ancestor[index]
+    /// - None => is not loop link
+    pub loop_link: Option<usize>,
 }
 
 impl <E: source::SourceExt> FlatDirEntry<E> {
@@ -526,5 +530,9 @@ impl<E: source::SourceExt> DirState<E> {
 
     pub fn depth(&self) -> usize {
         self.depth
+    }
+
+    pub fn skip_all(&mut self) {
+        self.position = Position::AfterContent;    
     }
 }

@@ -32,7 +32,7 @@ the path for each entry:
 ```rust,no_run
 use walkdir::WalkDir;
 
-for entry in <WalkDir>::new("foo") {
+for entry in <WalkDir>::new("foo").into_classic() {
     let entry = entry.unwrap();
     println!("{}", entry.path().display());
 }
@@ -45,7 +45,7 @@ that the owner of the running process does not have permission to access.)
 ```rust,no_run
 use walkdir::WalkDir;
 
-for entry in <WalkDir>::new("foo").into_iter().filter_map(|e| e.ok()) {
+for entry in <WalkDir>::new("foo").into_classic().filter_map(|e| e.ok()) {
     println!("{}", entry.path().display());
 }
 ```
@@ -57,7 +57,7 @@ The same code as above, except `follow_links` is enabled:
 ```rust,no_run
 use walkdir::WalkDir;
 
-for entry in <WalkDir>::new("foo").follow_links(true) {
+for entry in <WalkDir>::new("foo").follow_links(true).into_classic() {
     let entry = entry.unwrap();
     println!("{}", entry.path().display());
 }
@@ -69,7 +69,7 @@ This uses the `filter_entry` iterator adapter to avoid yielding hidden files
 and directories efficiently:
 
 ```rust,no_run
-use walkdir::{DirEntry, WalkDir};
+use walkdir::{DirEntry, WalkDir, ClassicWalkDirIter};
 
 fn is_hidden(entry: &DirEntry) -> bool {
     entry.file_name()
@@ -78,7 +78,7 @@ fn is_hidden(entry: &DirEntry) -> bool {
          .unwrap_or(false)
 }
 
-let walker = <WalkDir>::new("foo").into_iter();
+let walker = <WalkDir>::new("foo").into_classic();
 for entry in walker.filter_entry(|e| !is_hidden(e)) {
     let entry = entry.unwrap();
     println!("{}", entry.path().display());

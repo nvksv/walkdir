@@ -2,8 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::tests::util::Dir;
-use crate::{WalkDir, Position, WalkDirIter, ContentOrder};
-use crate::source;
+use crate::{WalkDir, Position, WalkDirIter, ClassicWalkDirIter, ContentOrder};
 
 /// Check for defaulted type parameter bug
 /// See https://github.com/rust-lang/rust/issues/27336
@@ -35,7 +34,7 @@ fn send_sync_traits() {
 fn empty() {
     let dir = Dir::tmp();
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     assert_eq!(1, r.ents().len());
@@ -51,7 +50,7 @@ fn empty() {
 fn empty_follow() {
     let dir = Dir::tmp();
     let wd = <WalkDir>::new(dir.path()).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     assert_eq!(1, r.ents().len());
@@ -69,7 +68,7 @@ fn empty_file() {
     dir.touch("a");
 
     let wd = <WalkDir>::new(dir.path().join("a"));
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     assert_eq!(1, r.ents().len());
@@ -87,7 +86,7 @@ fn empty_file_follow() {
     dir.touch("a");
 
     let wd = <WalkDir>::new(dir.path().join("a")).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     assert_eq!(1, r.ents().len());
@@ -105,7 +104,7 @@ fn one_dir() {
     dir.mkdirp("a");
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.ents();
@@ -123,7 +122,7 @@ fn one_file() {
     dir.touch("a");
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.ents();
@@ -142,7 +141,7 @@ fn one_dir_one_file() {
     dir.touch("foo/a");
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -160,7 +159,7 @@ fn many_files() {
     dir.touch_all(&["foo/a", "foo/b", "foo/c"]);
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -181,7 +180,7 @@ fn many_dirs() {
     dir.mkdirp("foo/c");
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -203,7 +202,7 @@ fn many_mixed() {
     dir.touch_all(&["foo/b", "foo/d", "foo/f"]);
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -228,7 +227,7 @@ fn nested() {
     dir.touch(nested.join("A"));
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -273,7 +272,7 @@ fn nested_small_max_open() {
     dir.touch(nested.join("A"));
 
     let wd = <WalkDir>::new(dir.path()).max_open(1);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -318,7 +317,7 @@ fn siblings() {
     dir.touch_all(&["bar/a", "bar/b"]);
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -340,7 +339,7 @@ fn sym_root_file_nofollow() {
     dir.symlink_file("a", "a-link");
 
     let wd = <WalkDir>::new(dir.join("a-link"));
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.sorted_ents();
@@ -371,7 +370,7 @@ fn sym_root_file_follow() {
     dir.symlink_file("a", "a-link");
 
     let wd = <WalkDir>::new(dir.join("a-link")).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.sorted_ents();
@@ -402,7 +401,7 @@ fn sym_root_dir_nofollow() {
     dir.touch("a/zzz");
 
     let wd = <WalkDir>::new(dir.join("a-link"));
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.sorted_ents();
@@ -438,7 +437,7 @@ fn sym_root_dir_follow() {
     dir.touch("a/zzz");
 
     let wd = <WalkDir>::new(dir.join("a-link")).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.sorted_ents();
@@ -473,7 +472,7 @@ fn sym_file_nofollow() {
     dir.symlink_file("a", "a-link");
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.sorted_ents();
@@ -509,7 +508,7 @@ fn sym_file_follow() {
     dir.symlink_file("a", "a-link");
 
     let wd = <WalkDir>::new(dir.path()).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.sorted_ents();
@@ -546,7 +545,7 @@ fn sym_dir_nofollow() {
     dir.touch("a/zzz");
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.sorted_ents();
@@ -583,7 +582,7 @@ fn sym_dir_follow() {
     dir.touch("a/zzz");
 
     let wd = <WalkDir>::new(dir.path()).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let ents = r.sorted_ents();
@@ -625,7 +624,7 @@ fn sym_noloop() {
     dir.symlink_dir("a", "a/b/c/a-link");
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     // There's no loop if we aren't following symlinks.
     r.assert_no_errors();
 
@@ -639,7 +638,7 @@ fn sym_loop_detect() {
     dir.symlink_dir("a", "a/b/c/a-link");
 
     let wd = <WalkDir>::new(dir.path()).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
 
     let (ents, errs) = (r.sorted_ents(), r.errs());
     assert_eq!(4, ents.len());
@@ -663,7 +662,7 @@ fn sym_self_loop_no_error() {
     dir.symlink_file("a", "a");
 
     let wd = <WalkDir>::new(dir.path());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     // No errors occur because even though the symlink points to nowhere, it
     // is never followed, and thus no error occurs.
     r.assert_no_errors();
@@ -688,7 +687,7 @@ fn sym_file_self_loop_io_error() {
     dir.symlink_file("a", "a");
 
     let wd = <WalkDir>::new(dir.path()).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
 
     let (ents, errs) = (r.sorted_ents(), r.errs());
     assert_eq!(1, ents.len());
@@ -709,7 +708,7 @@ fn sym_dir_self_loop_io_error() {
     dir.symlink_dir("a", "a");
 
     let wd = <WalkDir>::new(dir.path()).follow_links(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
 
     let (ents, errs) = (r.sorted_ents(), r.errs());
     assert_eq!(1, ents.len());
@@ -730,7 +729,7 @@ fn min_depth_1() {
     dir.mkdirp("a/b");
 
     let wd = <WalkDir>::new(dir.path()).min_depth(1);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![dir.join("a"), dir.join("a").join("b")];
@@ -743,7 +742,7 @@ fn min_depth_2() {
     dir.mkdirp("a/b");
 
     let wd = <WalkDir>::new(dir.path()).min_depth(2);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![dir.join("a").join("b")];
@@ -756,7 +755,7 @@ fn max_depth_0() {
     dir.mkdirp("a/b");
 
     let wd = <WalkDir>::new(dir.path()).max_depth(0);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![dir.path().to_path_buf()];
@@ -769,7 +768,7 @@ fn max_depth_1() {
     dir.mkdirp("a/b");
 
     let wd = <WalkDir>::new(dir.path()).max_depth(1);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![dir.path().to_path_buf(), dir.join("a")];
@@ -782,7 +781,7 @@ fn max_depth_2() {
     dir.mkdirp("a/b");
 
     let wd = <WalkDir>::new(dir.path()).max_depth(2);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected =
@@ -797,7 +796,7 @@ fn min_max_depth_diff_nada() {
     dir.mkdirp("a/b/c");
 
     let wd = <WalkDir>::new(dir.path()).min_depth(3).max_depth(2);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![dir.join("a").join("b").join("c")];
@@ -810,7 +809,7 @@ fn min_max_depth_diff_0() {
     dir.mkdirp("a/b/c");
 
     let wd = <WalkDir>::new(dir.path()).min_depth(2).max_depth(2);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![dir.join("a").join("b")];
@@ -823,7 +822,7 @@ fn min_max_depth_diff_1() {
     dir.mkdirp("a/b/c");
 
     let wd = <WalkDir>::new(dir.path()).min_depth(1).max_depth(2);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![dir.join("a"), dir.join("a").join("b")];
@@ -836,7 +835,7 @@ fn contents_first() {
     dir.touch("a");
 
     let wd = <WalkDir>::new(dir.path()).contents_first(true);
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![dir.join("a"), dir.path().to_path_buf()];
@@ -857,7 +856,7 @@ fn contents_first_ordered() {
     dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
 
     let wd = <WalkDir>::new(dir.path()).contents_first(false).content_order(ContentOrder::FilesFirst).sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()));
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -924,7 +923,7 @@ fn filter_entry() {
     let wd = <WalkDir>::new(dir.path())
         .into_iter()
         .filter_entry(|ent| if let Position::Entry(dent) = ent {dent.file_name() != "baz"} else {false});
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -944,7 +943,7 @@ fn sort() {
 
     let wd = <WalkDir>::new(dir.path())
         .sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()).reverse());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -967,7 +966,7 @@ fn sort_max_open() {
     let wd = <WalkDir>::new(dir.path())
         .max_open(1)
         .sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()).reverse());
-    let r = dir.run_recursive(wd.into_iter().into_classic());
+    let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
     let expected = vec![
@@ -1026,7 +1025,7 @@ fn regression_skip_current_dir() {
     dir.mkdirp("foo/a/b");
     dir.mkdirp("foo/1/2");
 
-    let mut wd = <WalkDir>::new(dir.path()).max_open(1).into_iter();
+    let mut wd = <WalkDir>::new(dir.path()).max_open(1).into_classic();
     wd.next();
     wd.next();
     wd.next();
