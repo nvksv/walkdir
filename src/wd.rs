@@ -45,10 +45,12 @@ pub type DeviceNum = u64;
 pub enum ContentFilter {
     /// No filter, all content will be yielded (default)
     None,
-    /// Yield files only
+    /// Yield files only (not dirs, i.e. including symlinks)
     FilesOnly,
     /// Yield dirs only
-    DirsOnly
+    DirsOnly,
+    /// Skip all (only BeforeContent(dent) and AfterContent will be yielded)
+    SkipAll,
 }
 
 /// A variants for ordering content

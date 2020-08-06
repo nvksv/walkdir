@@ -11,7 +11,7 @@ use crate::dent::DirEntry;
 use crate::dent::DirEntryExt;
 use crate::error::ErrorInner;
 use crate::source::{self, SourceFsFileType, SourceFsMetadata, SourcePath};
-use crate::dir::{DirState, FlatDirEntry};
+use crate::dir::{DirState, FlatDirEntry, FlatDirEntryRef, ErrorInnerRef};
 use crate::opts::{WalkDirOptions, WalkDirOptionsImmut};
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
@@ -229,9 +229,16 @@ impl<E: source::SourceExt> IntoIter<E> {
         Ok(())
     }
 
-    fn push_dir(&mut self, dent: DirEntry<E>, new_depth: usize) -> wd::ResultInner<(), E> {
+    fn push_dir(&mut self, dent: DirEntry<E>, new_depth: usize) -> wd::ResultInner<(), E>  {
 
-        let fdent = dent.into_flat();
+        let flat = dent.into_flat();
+
+        // flat_ref is ref to current position of current state, so we can update if safely
+
+        // This is safe as we makes any changes strictly AFTER using dent_ptr.
+        // Neither E::read_dir nor Ancestor::new
+
+        assert!(flat.loop_link.is_none());
 
         // Make room for another open file descriptor if we've hit the max.
         let free = self.states.len().checked_sub(self.oldest_opened).unwrap();
@@ -241,24 +248,16 @@ impl<E: source::SourceExt> IntoIter<E> {
         }
 
         // Open a handle to reading the directory's entries.
-        let rd = E::read_dir(&fdent.raw, fdent.raw.path()).map_err(|err| ErrorInner::<E>::from_path(fdent.raw.path().to_path_buf(), err));
+        let rd = E::read_dir(&flat.raw, flat.raw.path()).map_err(|err| ErrorInner::<E>::from_path(flat.raw.path().to_path_buf(), err));
         let state = DirState::<E>::new( rd, new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) );
 
         if self.opts.immut.follow_links {
-            // The only way a symlink can cause a loop is if it points
-            // to a directory. Otherwise, it always points to a leaf
-            // and we can omit any loop checks.
-            if fdent.is_dir {
-                assert!(fdent.loop_link.is_none())
-            }
+            let ancestor = Ancestor::new(&flat.raw)?;
+            self.ancestors.push(ancestor);
+        };
 
-            self.ancestors.push(Ancestor::new(&fdent.raw)?);
-        }
-
-        // We push this after states_path since creating the Ancestor can fail.
-        // If it fails, then we return the error and won't descend.
         self.states.push(state);
-        
+
         // If we had to close out a previous directory stream, then we need to
         // increment our index the oldest still-open stream. We do this only
         // after adding to our stack, in order to ensure that the oldest_opened
@@ -274,7 +273,7 @@ impl<E: source::SourceExt> IntoIter<E> {
             // that the subtraction won't underflow and that adding 1 will
             // never overflow.
             self.oldest_opened = self.oldest_opened.checked_add(1).unwrap();
-        }
+        };
 
         Ok(())
     }
@@ -372,9 +371,9 @@ impl<E: source::SourceExt> IntoIter<E> {
 
     }
 
-    fn make_loop_error<P: AsRef<E::Path>>(&self, index: usize, child: P) -> ErrorInner<E> {
+    fn make_loop_error<P: AsRef<E::Path>>(ancestors: &Vec<Ancestor<E>>, index: usize, child: P) -> ErrorInner<E> {
         
-        let ancestor = self.ancestors.get(index).unwrap();
+        let ancestor = ancestors.get(index).unwrap();
         
         ErrorInner::<E>::from_loop(
             &ancestor.path,
@@ -420,8 +419,8 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
         fn get_parent_dent<E>(this: &mut IntoIter<E>, cur_depth: usize) -> DirEntry<E> where E: source::SourceExt {
             let prev_state = this.states.get_mut(cur_depth-1).unwrap();
             match prev_state.get_current_position() {
-                Position::Entry(dent) => {
-                    return dent;
+                Position::Entry(rflat) => {
+                    return rflat.into_dent();
                 },
                 _ => unreachable!(),
             }
@@ -455,11 +454,11 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
 
                     return Some(Position::BeforeContent(get_parent_dent(self, cur_depth)));
                 }, 
-                Position::Entry(dent) => {
-                    let allow_yield = (cur_state.depth() >= self.opts.immut.min_depth) && (if dent.loop_link().is_some() {self.opts.immut.yield_loop_links} else {true});
+                Position::Entry(rflat) => {
+                    let allow_yield = !rflat.hidden() && (cur_depth >= self.opts.immut.min_depth) && (if rflat.loop_link().is_some() {self.opts.immut.yield_loop_links} else {true});
 
-                    if dent.is_dir() {
-                        let allow_push = cur_state.depth() < self.opts.immut.max_depth;
+                    if rflat.is_dir() {
+                        let allow_push = cur_depth < self.opts.immut.max_depth;
 
                         match self.transition_state {
                             TransitionState::None => {
@@ -470,21 +469,22 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                                 }
 
                                 if !self.opts.immut.contents_first && allow_yield {
-                                    return Some(Position::Entry(dent));
+                                    return Some(Position::Entry(rflat.into_dent()));
                                 };
                             },
                             TransitionState::BeforePushDown => {
                                 self.transition_state = TransitionState::None;
 
-                                if let Some(loop_depth) = dent.loop_link() {
+                                if let Some(loop_depth) = rflat.loop_link() {
                                     self.transition_state = TransitionState::AfterPopUp;
                                     if !self.opts.immut.yield_loop_links {
-                                        let err = self.make_loop_error(loop_depth, dent.path());
+                                        let err = Self::make_loop_error(&self.ancestors, loop_depth, rflat.path());
                                         return Some(Position::Error(wd::Error::from_inner(err, cur_depth)));
                                     }
                                     continue
                                 }
 
+                                let dent = rflat.into_dent();
                                 match self.push_dir( dent, cur_depth+1 ) {
                                     Ok(_) => {},
                                     Err(err) => {
@@ -496,10 +496,12 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                             TransitionState::AfterPopUp => {
                                 self.transition_state = TransitionState::None;
 
-                                cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
-
                                 if self.opts.immut.contents_first && allow_yield {
+                                    let dent = rflat.into_dent();
+                                    cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
                                     return Some(Position::Entry(dent));
+                                } else {
+                                    cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
                                 };
                             },
                             _ => unreachable!(),
@@ -508,18 +510,21 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                     } else {
                         assert!( self.transition_state == TransitionState::None );
 
-                        cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
-
                         if allow_yield {
+                            let dent = rflat.into_dent();
+                            cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
                             return Some(Position::Entry(dent));
+                        } else {
+                            cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
                         }
                     }
                 },
-                Position::Error(e) => {
+                Position::Error(rerr) => {
                     assert!( self.transition_state == TransitionState::None );
 
+                    let err = rerr.into_error();
                     cur_state.next_position( &self.opts.immut, &process_dent!(self, cur_depth) );
-                    return Some(Position::Error(e));
+                    return Some(Position::Error(err));
                 },
                 Position::AfterContent => {
                     if cur_depth == 0 {
@@ -538,7 +543,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
                         _ => unreachable!()
                     }
                 }
-            };
+            }
         }
 
     }

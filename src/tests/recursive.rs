@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::tests::util::Dir;
-use crate::{WalkDir, Position, WalkDirIter, ClassicWalkDirIter, ContentOrder};
+use crate::{WalkDir, Position, WalkDirIter, ClassicWalkDirIter, ContentOrder, ContentFilter};
 
 /// Check for defaulted type parameter bug
 /// See https://github.com/rust-lang/rust/issues/27336
@@ -850,42 +850,38 @@ fn classic_contents_first_ordered() {
     dir.mkdirp("baz");
     dir.mkdirp("zzz");
     dir.touch_all(&["a", "b", "c"]);
-    dir.touch_all(&["foo/a", "foo/b", "foo/c"]);
+    dir.touch_all(&["foo/a", "foo/z", "foo/c", "foo/b"]);
     dir.touch_all(&["foo/bar/a", "foo/bar/b", "foo/bar/c"]);
     dir.touch_all(&["zzz/a", "zzz/b", "zzz/c"]);
     dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
 
-    let wd = <WalkDir>::new(dir.path()).contents_first(false).content_order(ContentOrder::FilesFirst).sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()));
-    let r = wd.map(|pos| {
+    let mut wd = <WalkDir>::new(dir.path())
+                .contents_first(false)
+                .content_filter(ContentFilter::SkipAll)
+                .sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()))
+                .into_iter();
+    let mut r: Vec<(PathBuf, Vec<String>)> = vec![];
+    while let Some(pos) = wd.next() {
         match pos {
-            Position::Entry(dent) =>
+            Position::BeforeContent(dent) => {
+                let path = dent.path().to_path_buf();
+                let content = wd.get_current_dir_content(ContentFilter::FilesOnly).unwrap().iter().map(|dent| dent.file_name().to_str().unwrap().to_string()).collect::<Vec<_>>();
+
+                r.push((path, content));
+            },
+            Position::AfterContent => {},
+            _ => panic!(),
         }
-    });
-    r.assert_no_errors();
+    }
 
     let expected = vec![
-        dir.path().to_path_buf(),
-        dir.join("a"),
-        dir.join("b"),
-        dir.join("c"),
-        dir.join("baz"),
-        dir.join("baz").join("a"),
-        dir.join("baz").join("b"),
-        dir.join("baz").join("c"),
-        dir.join("foo"),
-        dir.join("foo").join("a"),
-        dir.join("foo").join("b"),
-        dir.join("foo").join("c"),
-        dir.join("foo").join("bar"),
-        dir.join("foo").join("bar").join("a"),
-        dir.join("foo").join("bar").join("b"),
-        dir.join("foo").join("bar").join("c"),
-        dir.join("zzz"),
-        dir.join("zzz").join("a"),
-        dir.join("zzz").join("b"),
-        dir.join("zzz").join("c"),
+        (dir.path().to_path_buf(),      vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        (dir.join("baz"),               vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        (dir.join("foo"),               vec!["a".to_string(), "b".to_string(), "c".to_string(), "z".to_string()]),
+        (dir.join("foo").join("bar"),   vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        (dir.join("zzz"),               vec!["a".to_string(), "b".to_string(), "c".to_string()]),
     ];
-    assert_eq!(expected, r.paths());
+    assert_eq!(expected, r);
 }
 
 #[test]

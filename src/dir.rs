@@ -198,6 +198,7 @@ impl<E: source::SourceExt> DirEntryRecord<E> {
                     ContentFilter::None => false,
                     ContentFilter::DirsOnly => !flat.is_dir,
                     ContentFilter::FilesOnly => flat.is_dir,
+                    ContentFilter::SkipAll => true,
                 };
                 
                 Self {
@@ -216,6 +217,19 @@ impl<E: source::SourceExt> DirEntryRecord<E> {
         };
 
         Some(this)
+    }
+
+    fn can_be_yielded(&self) -> bool {
+        
+        if !self.hidden {
+            return true;
+        }
+
+        if let Ok(ref flat) = self.flat {
+            return flat.is_dir;
+        }
+
+        return false;
     }
 }
 
@@ -286,7 +300,7 @@ impl<E: source::SourceExt> DirContent<E> {
             let next_pos = if let Some(pos) = self.current_pos {pos + 1} else {0};
             if let Some(rec) = self.content.get(next_pos) {
                 self.current_pos = Some(next_pos);
-                return Some((rec.first_pass, rec.hidden));
+                return Some((rec.first_pass, rec.can_be_yielded()));
             }
 
             if let Some(r_rawdent) = self.rd.next() {
@@ -300,7 +314,7 @@ impl<E: source::SourceExt> DirContent<E> {
                 let last = self.content.last();
                 assert!( last.is_some() );
                 let rec = last.unwrap();
-                return Some((rec.first_pass, rec.hidden));
+                return Some((rec.first_pass, rec.can_be_yielded()));
             }
 
             break;
@@ -316,10 +330,13 @@ impl<E: source::SourceExt> DirContent<E> {
 
     /// Gets record at current position
     /// Doesn't change position.
-    pub(crate) fn get_current_rec(&mut self) -> Option<&mut DirEntryRecord<E>> {
-        match self.current_pos {
-            Some(pos) => self.content.get_mut(pos),
-            None => None,
+    pub(crate) fn get_current_rec(&mut self, depth: usize) -> std::result::Result<FlatDirEntryRef<'_, E>, ErrorInnerRef<'_, E>> {
+        let pos = self.current_pos.unwrap();
+        let rec = self.content.get_mut(pos).unwrap();
+            
+        match rec.flat {
+            Ok(ref mut flat) => Ok(FlatDirEntryRef::<E>::new( pos, flat, depth, rec.hidden )),
+            Err(ref mut err) => Err(ErrorInnerRef::<E>::new( err, depth )),
         }
     }
 
@@ -354,6 +371,79 @@ impl<E: source::SourceExt> DirContent<E> {
     }
 }
 
+
+
+/////////////////////////////////////////////////////////////////////////
+//// DirEntryRecordRef
+
+pub struct FlatDirEntryRef<'r, E: source::SourceExt> {
+    pos: usize,
+    flat: &'r mut FlatDirEntry<E>,
+    depth: usize,
+    /// This entry will not be yielded according to opts.content_filter
+    hidden: bool,
+} 
+
+impl<'r, E: source::SourceExt> FlatDirEntryRef<'r, E> {
+    fn new( pos: usize, flat: &'r mut FlatDirEntry<E>, depth: usize, hidden: bool ) -> Self {
+        Self {
+            pos,
+            flat,
+            depth,
+            hidden
+        }
+    }
+
+    pub fn into_dent(self) -> DirEntry<E> {
+        self.flat.clone().into_dent(self.depth)    
+    }
+
+    pub fn as_flat(&self) -> &FlatDirEntry<E> {
+        self.flat
+    }
+
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    pub fn is_dir(&self) -> bool {
+        self.flat.is_dir
+    }
+
+    pub fn hidden(&self) -> bool {
+        self.hidden
+    }
+
+    pub fn loop_link(&self) -> Option<usize> {
+        self.flat.loop_link
+    }
+
+    pub fn path(&self) -> &E::Path {
+        self.flat.raw.path()
+    }
+}
+
+
+/////////////////////////////////////////////////////////////////////////
+//// ErrorInnerRef
+
+pub struct ErrorInnerRef<'r, E: source::SourceExt> {
+    err: &'r mut wd::ErrorInner<E>,
+    depth: usize,
+} 
+
+impl<'r, E: source::SourceExt> ErrorInnerRef<'r, E> {
+    fn new( err: &'r mut wd::ErrorInner<E>, depth: usize ) -> Self {
+        Self {
+            err,
+            depth,
+        }
+    }
+
+    pub fn into_error(self) -> wd::Error<E> {
+        wd::Error::<E>::from_inner( self.err.take(), self.depth )
+    }
+}
 
 
 /////////////////////////////////////////////////////////////////////////
@@ -432,14 +522,14 @@ impl<E: source::SourceExt> DirState<E> {
     /// Updates current position.
     fn shift_next(&mut self, opts_immut: &WalkDirOptionsImmut<E>, process_rawdent: &impl (Fn(RawDirEntry<E>) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>)) -> bool {
         loop {
-            if let Some((first_pass, hidden)) = self.content.get_next_rec(opts_immut, process_rawdent) {
-                let valid = match self.pass {
+            if let Some((first_pass, can_be_yielded)) = self.content.get_next_rec(opts_immut, process_rawdent) {
+                let valid_pass = match self.pass {
                     DirPass::Entire => true,
                     DirPass::First => first_pass,
                     DirPass::Second => !first_pass,
                 };
 
-                if valid && !hidden {
+                if valid_pass && can_be_yielded {
                     return true;
                 };
 
@@ -477,21 +567,16 @@ impl<E: source::SourceExt> DirState<E> {
 
     /// Get current state.
     /// Doesn't change position.
-    pub fn get_current_position(&mut self) -> Position<(), DirEntry<E>, wd::Error<E>> {
+    pub fn get_current_position(&mut self) -> Position<(), FlatDirEntryRef<'_, E>, ErrorInnerRef<'_, E>> {
         match self.position {
             Position::BeforeContent(_) => {
                 Position::BeforeContent(())
             },
             Position::Entry(_) => {
                 // At this state current rec must exist
-                let rec = self.content.get_current_rec().unwrap();
-                match &mut rec.flat {
-                    Ok(flat) => {
-                        Position::Entry(flat.clone().into_dent(self.depth))
-                    },
-                    Err(err) => {
-                        Position::Error(wd::Error::from_inner(err.take(), self.depth))
-                    },
+                match self.content.get_current_rec(self.depth) {
+                    Ok(flat) => Position::Entry(flat),
+                    Err(err) => Position::Error(err),
                 }
             },
             Position::AfterContent => Position::AfterContent,
@@ -524,6 +609,9 @@ impl<E: source::SourceExt> DirState<E> {
                 ).map(
                     |flat: &FlatDirEntry<E>| flat.clone().into_dent(self.depth())
                 ).collect()
+            },
+            ContentFilter::SkipAll => {
+                vec![]
             },
         }
     }
