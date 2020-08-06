@@ -130,5 +130,6 @@ pub use crate::opts::WalkDir;
 pub use crate::walk::IntoIter;
 pub use crate::iter::{FilterEntry, WalkDirIter, ClassicWalkDirIter, WalkDirIteratorItem};
 pub use crate::wd::{Position, ContentFilter, ContentOrder};
+pub use crate::source::{SourcePath, SourcePathBuf};
 
 

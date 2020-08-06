@@ -335,7 +335,7 @@ impl<E: source::SourceExt> DirContent<E> {
         let rec = self.content.get_mut(pos).unwrap();
             
         match rec.flat {
-            Ok(ref mut flat) => Ok(FlatDirEntryRef::<E>::new( pos, flat, depth, rec.hidden )),
+            Ok(ref mut flat) => Ok(FlatDirEntryRef::<E>::new( flat, depth, rec.hidden )),
             Err(ref mut err) => Err(ErrorInnerRef::<E>::new( err, depth )),
         }
     }
@@ -377,7 +377,6 @@ impl<E: source::SourceExt> DirContent<E> {
 //// DirEntryRecordRef
 
 pub struct FlatDirEntryRef<'r, E: source::SourceExt> {
-    pos: usize,
     flat: &'r mut FlatDirEntry<E>,
     depth: usize,
     /// This entry will not be yielded according to opts.content_filter
@@ -385,9 +384,8 @@ pub struct FlatDirEntryRef<'r, E: source::SourceExt> {
 } 
 
 impl<'r, E: source::SourceExt> FlatDirEntryRef<'r, E> {
-    fn new( pos: usize, flat: &'r mut FlatDirEntry<E>, depth: usize, hidden: bool ) -> Self {
+    fn new( flat: &'r mut FlatDirEntry<E>, depth: usize, hidden: bool ) -> Self {
         Self {
-            pos,
             flat,
             depth,
             hidden
@@ -398,13 +396,13 @@ impl<'r, E: source::SourceExt> FlatDirEntryRef<'r, E> {
         self.flat.clone().into_dent(self.depth)    
     }
 
-    pub fn as_flat(&self) -> &FlatDirEntry<E> {
-        self.flat
-    }
+    // pub fn as_flat(&self) -> &FlatDirEntry<E> {
+    //     self.flat
+    // }
 
-    pub fn depth(&self) -> usize {
-        self.depth
-    }
+    // pub fn depth(&self) -> usize {
+    //     self.depth
+    // }
 
     pub fn is_dir(&self) -> bool {
         self.flat.is_dir

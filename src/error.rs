@@ -163,9 +163,9 @@ impl<E: 'static + source::SourceExt> From<Error<E>> for io::Error {
 
 impl<E: source::SourceExt> Error<E> {
 
-    pub(crate) fn into_inner(self) -> ErrorInner<E> {
-        self.inner
-    }
+    // pub(crate) fn into_inner(self) -> ErrorInner<E> {
+    //     self.inner
+    // }
 
     /// Returns the path associated with this error if one exists.
     ///

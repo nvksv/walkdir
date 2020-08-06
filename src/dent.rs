@@ -167,26 +167,26 @@ impl<E: source::SourceExt> DirEntry<E> {
         self.is_dir
     }
 
-    /// Returns true if and only if this entry points to a directory.
-    pub(crate) fn loop_link(&self) -> Option<usize> {
-        self.loop_link
-    }
+    // /// Returns true if and only if this entry points to a directory.
+    // pub(crate) fn loop_link(&self) -> Option<usize> {
+    //     self.loop_link
+    // }
 
-    pub(crate) fn from_raw(
-        raw: RawDirEntry<E>,
-        is_dir: bool,
-        follow_link: bool,
-        loop_link: Option<usize>,
-        depth: usize,
-    ) -> Self {
-        Self {
-            raw,
-            is_dir,
-            follow_link,
-            loop_link,
-            depth
-        }
-    }
+    // pub(crate) fn from_raw(
+    //     raw: RawDirEntry<E>,
+    //     is_dir: bool,
+    //     follow_link: bool,
+    //     loop_link: Option<usize>,
+    //     depth: usize,
+    // ) -> Self {
+    //     Self {
+    //         raw,
+    //         is_dir,
+    //         follow_link,
+    //         loop_link,
+    //         depth
+    //     }
+    // }
 
     pub(crate) fn from_flat(
         flat: FlatDirEntry<E>,

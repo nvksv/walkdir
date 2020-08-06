@@ -11,7 +11,7 @@ use crate::dent::DirEntry;
 use crate::dent::DirEntryExt;
 use crate::error::ErrorInner;
 use crate::source::{self, SourceFsFileType, SourceFsMetadata, SourcePath};
-use crate::dir::{DirState, FlatDirEntry, FlatDirEntryRef, ErrorInnerRef};
+use crate::dir::{DirState, FlatDirEntry};
 use crate::opts::{WalkDirOptions, WalkDirOptionsImmut};
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
