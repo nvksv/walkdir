@@ -35,7 +35,7 @@ use walkdir::{WalkDir, WalkDirIter, ClassicWalkDirIter};
 # use walkdir::Error;
 
 # fn try_main() -> Result<(), Error> {
-for entry in <WalkDir>::new("foo").into_classic() {
+for entry in WalkDir::new("foo").into_classic() {
     println!("{}", entry?.path().display());
 }
 # Ok(())
@@ -50,7 +50,7 @@ access.)
 ```no_run
 use walkdir::{WalkDir, WalkDirIter, ClassicWalkDirIter};
 
-for entry in <WalkDir>::new("foo").into_classic().filter_map(|e| e.ok()) {
+for entry in WalkDir::new("foo").into_classic().filter_map(|e| e.ok()) {
     println!("{}", entry.path().display());
 }
 ```
@@ -66,7 +66,7 @@ use walkdir::{WalkDir, WalkDirIter, ClassicWalkDirIter};
 # use walkdir::Error;
 
 # fn try_main() -> Result<(), Error> {
-for entry in <WalkDir>::new("foo").follow_links(true).into_classic() {
+for entry in WalkDir::new("foo").follow_links(true).into_classic() {
     println!("{}", entry?.path().display());
 }
 # Ok(())
@@ -92,7 +92,7 @@ fn is_hidden(entry: &DirEntry) -> bool {
 }
 
 # fn try_main() -> Result<(), Error> {
-let walker = <WalkDir>::new("foo").into_classic();
+let walker = WalkDir::new("foo").into_classic();
 for entry in walker.filter_entry(|e| !is_hidden(e)) {
     println!("{}", entry?.path().display());
 }
@@ -126,10 +126,11 @@ pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 
-pub use crate::opts::WalkDir;
-pub use crate::walk::IntoIter;
+pub use crate::opts::WalkDirBuilder;
+pub use crate::walk::WalkDirIterator;
 pub use crate::iter::{FilterEntry, WalkDirIter, ClassicWalkDirIter, WalkDirIteratorItem};
 pub use crate::wd::{Position, ContentFilter, ContentOrder};
 pub use crate::source::{SourcePath, SourcePathBuf};
 
-
+/// Default (classic) WalkDir
+pub type WalkDir = WalkDirBuilder<source::DefaultSourceExt>;

@@ -234,7 +234,7 @@ impl<E: source::SourceExt> Error<E> {
     ///
     /// use walkdir::WalkDir;
     ///
-    /// for entry in <WalkDir>::new("foo").into_classic() {
+    /// for entry in WalkDir::new("foo").into_classic() {
     ///     match entry {
     ///         Ok(entry) => println!("{}", entry.path().display()),
     ///         Err(err) => {

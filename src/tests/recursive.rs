@@ -9,31 +9,31 @@ use crate::{WalkDir, Position, WalkDirIter, ClassicWalkDirIter, ContentOrder, Co
 #[test]
 fn check_defaulted_generic_parameter() {
     // This is not working now in tests (but it is working well elsewhere):
-    // let wd = WalkDir::new("/");
+    let _wd = WalkDir::new("/");
 
     // So we must use this workaround:
-    let _wd = <WalkDir>::new("/");
+    let _wd = WalkDir::new("/");
 }
 
 #[test]
 fn send_sync_traits() {
-    use crate::{source, FilterEntry, IntoIter, WalkDirIteratorItem};
+    use crate::WalkDirIterator;
 
     fn assert_send<T: Send>() {}
     fn assert_sync<T: Sync>() {}
 
     assert_send::<WalkDir>();
     assert_sync::<WalkDir>();
-    assert_send::<IntoIter>();
-    assert_sync::<IntoIter>();
-    // assert_send::<FilterEntry<source::DefaultSourceExt, IntoIter, (dyn FnMut(&WalkDirIteratorItem<source::DefaultSourceExt>) -> bool + Send)>>();
-    // assert_sync::<FilterEntry<source::DefaultSourceExt, IntoIter, (dyn FnMut(&WalkDirIteratorItem<source::DefaultSourceExt>) -> bool) + Sync>>();
+    assert_send::<WalkDirIterator>();
+    assert_sync::<WalkDirIterator>();
+    // assert_send::<FilterEntry<source::DefaultSourceExt, WalkDirIterator, (dyn FnMut(&WalkDirIteratorItem<source::DefaultSourceExt>) -> bool + Send)>>();
+    // assert_sync::<FilterEntry<source::DefaultSourceExt, WalkDirIterator, (dyn FnMut(&WalkDirIteratorItem<source::DefaultSourceExt>) -> bool) + Sync>>();
 }
 
 #[test]
 fn empty() {
     let dir = Dir::tmp();
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -49,7 +49,7 @@ fn empty() {
 #[test]
 fn empty_follow() {
     let dir = Dir::tmp();
-    let wd = <WalkDir>::new(dir.path()).follow_links(true);
+    let wd = WalkDir::new(dir.path()).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -67,7 +67,7 @@ fn empty_file() {
     let dir = Dir::tmp();
     dir.touch("a");
 
-    let wd = <WalkDir>::new(dir.path().join("a"));
+    let wd = WalkDir::new(dir.path().join("a"));
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -85,7 +85,7 @@ fn empty_file_follow() {
     let dir = Dir::tmp();
     dir.touch("a");
 
-    let wd = <WalkDir>::new(dir.path().join("a")).follow_links(true);
+    let wd = WalkDir::new(dir.path().join("a")).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -103,7 +103,7 @@ fn one_dir() {
     let dir = Dir::tmp();
     dir.mkdirp("a");
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -121,7 +121,7 @@ fn one_file() {
     let dir = Dir::tmp();
     dir.touch("a");
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -140,7 +140,7 @@ fn one_dir_one_file() {
     dir.mkdirp("foo");
     dir.touch("foo/a");
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -158,7 +158,7 @@ fn many_files() {
     dir.mkdirp("foo");
     dir.touch_all(&["foo/a", "foo/b", "foo/c"]);
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -179,7 +179,7 @@ fn many_dirs() {
     dir.mkdirp("foo/b");
     dir.mkdirp("foo/c");
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -201,7 +201,7 @@ fn many_mixed() {
     dir.mkdirp("foo/e");
     dir.touch_all(&["foo/b", "foo/d", "foo/f"]);
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -226,7 +226,7 @@ fn nested() {
     dir.mkdirp(&nested);
     dir.touch(nested.join("A"));
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -271,7 +271,7 @@ fn nested_small_max_open() {
     dir.mkdirp(&nested);
     dir.touch(nested.join("A"));
 
-    let wd = <WalkDir>::new(dir.path()).max_open(1);
+    let wd = WalkDir::new(dir.path()).max_open(1);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -316,7 +316,7 @@ fn siblings() {
     dir.touch_all(&["foo/a", "foo/b"]);
     dir.touch_all(&["bar/a", "bar/b"]);
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -338,7 +338,7 @@ fn sym_root_file_nofollow() {
     dir.touch("a");
     dir.symlink_file("a", "a-link");
 
-    let wd = <WalkDir>::new(dir.join("a-link"));
+    let wd = WalkDir::new(dir.join("a-link"));
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -369,7 +369,7 @@ fn sym_root_file_follow() {
     dir.touch("a");
     dir.symlink_file("a", "a-link");
 
-    let wd = <WalkDir>::new(dir.join("a-link")).follow_links(true);
+    let wd = WalkDir::new(dir.join("a-link")).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -400,7 +400,7 @@ fn sym_root_dir_nofollow() {
     dir.symlink_dir("a", "a-link");
     dir.touch("a/zzz");
 
-    let wd = <WalkDir>::new(dir.join("a-link"));
+    let wd = WalkDir::new(dir.join("a-link"));
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -436,7 +436,7 @@ fn sym_root_dir_follow() {
     dir.symlink_dir("a", "a-link");
     dir.touch("a/zzz");
 
-    let wd = <WalkDir>::new(dir.join("a-link")).follow_links(true);
+    let wd = WalkDir::new(dir.join("a-link")).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -471,7 +471,7 @@ fn sym_file_nofollow() {
     dir.touch("a");
     dir.symlink_file("a", "a-link");
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -507,7 +507,7 @@ fn sym_file_follow() {
     dir.touch("a");
     dir.symlink_file("a", "a-link");
 
-    let wd = <WalkDir>::new(dir.path()).follow_links(true);
+    let wd = WalkDir::new(dir.path()).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -544,7 +544,7 @@ fn sym_dir_nofollow() {
     dir.symlink_dir("a", "a-link");
     dir.touch("a/zzz");
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -581,7 +581,7 @@ fn sym_dir_follow() {
     dir.symlink_dir("a", "a-link");
     dir.touch("a/zzz");
 
-    let wd = <WalkDir>::new(dir.path()).follow_links(true);
+    let wd = WalkDir::new(dir.path()).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -623,7 +623,7 @@ fn sym_noloop() {
     dir.mkdirp("a/b/c");
     dir.symlink_dir("a", "a/b/c/a-link");
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     // There's no loop if we aren't following symlinks.
     r.assert_no_errors();
@@ -637,7 +637,7 @@ fn sym_loop_detect() {
     dir.mkdirp("a/b/c");
     dir.symlink_dir("a", "a/b/c/a-link");
 
-    let wd = <WalkDir>::new(dir.path()).follow_links(true);
+    let wd = WalkDir::new(dir.path()).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
 
     let (ents, errs) = (r.sorted_ents(), r.errs());
@@ -661,7 +661,7 @@ fn sym_self_loop_no_error() {
     let dir = Dir::tmp();
     dir.symlink_file("a", "a");
 
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd.into_classic());
     // No errors occur because even though the symlink points to nowhere, it
     // is never followed, and thus no error occurs.
@@ -686,7 +686,7 @@ fn sym_file_self_loop_io_error() {
     let dir = Dir::tmp();
     dir.symlink_file("a", "a");
 
-    let wd = <WalkDir>::new(dir.path()).follow_links(true);
+    let wd = WalkDir::new(dir.path()).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
 
     let (ents, errs) = (r.sorted_ents(), r.errs());
@@ -707,7 +707,7 @@ fn sym_dir_self_loop_io_error() {
     let dir = Dir::tmp();
     dir.symlink_dir("a", "a");
 
-    let wd = <WalkDir>::new(dir.path()).follow_links(true);
+    let wd = WalkDir::new(dir.path()).follow_links(true);
     let r = dir.run_recursive(wd.into_classic());
 
     let (ents, errs) = (r.sorted_ents(), r.errs());
@@ -728,7 +728,7 @@ fn min_depth_1() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b");
 
-    let wd = <WalkDir>::new(dir.path()).min_depth(1);
+    let wd = WalkDir::new(dir.path()).min_depth(1);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -741,7 +741,7 @@ fn min_depth_2() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b");
 
-    let wd = <WalkDir>::new(dir.path()).min_depth(2);
+    let wd = WalkDir::new(dir.path()).min_depth(2);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -754,7 +754,7 @@ fn max_depth_0() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b");
 
-    let wd = <WalkDir>::new(dir.path()).max_depth(0);
+    let wd = WalkDir::new(dir.path()).max_depth(0);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -767,7 +767,7 @@ fn max_depth_1() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b");
 
-    let wd = <WalkDir>::new(dir.path()).max_depth(1);
+    let wd = WalkDir::new(dir.path()).max_depth(1);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -780,7 +780,7 @@ fn max_depth_2() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b");
 
-    let wd = <WalkDir>::new(dir.path()).max_depth(2);
+    let wd = WalkDir::new(dir.path()).max_depth(2);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -795,7 +795,7 @@ fn min_max_depth_diff_nada() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b/c");
 
-    let wd = <WalkDir>::new(dir.path()).min_depth(3).max_depth(2);
+    let wd = WalkDir::new(dir.path()).min_depth(3).max_depth(2);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -808,7 +808,7 @@ fn min_max_depth_diff_0() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b/c");
 
-    let wd = <WalkDir>::new(dir.path()).min_depth(2).max_depth(2);
+    let wd = WalkDir::new(dir.path()).min_depth(2).max_depth(2);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -821,7 +821,7 @@ fn min_max_depth_diff_1() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b/c");
 
-    let wd = <WalkDir>::new(dir.path()).min_depth(1).max_depth(2);
+    let wd = WalkDir::new(dir.path()).min_depth(1).max_depth(2);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -834,7 +834,7 @@ fn contents_first() {
     let dir = Dir::tmp();
     dir.touch("a");
 
-    let wd = <WalkDir>::new(dir.path()).contents_first(true);
+    let wd = WalkDir::new(dir.path()).contents_first(true);
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -855,7 +855,7 @@ fn classic_contents_first_ordered() {
     dir.touch_all(&["zzz/a", "zzz/b", "zzz/c"]);
     dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
 
-    let mut wd = <WalkDir>::new(dir.path())
+    let mut wd = WalkDir::new(dir.path())
                 .contents_first(false)
                 .content_filter(ContentFilter::SkipAll)
                 .sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()))
@@ -897,7 +897,7 @@ fn contents_first_ordered() {
     dir.touch_all(&["zzz/a", "zzz/b", "zzz/c"]);
     dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
 
-    let wd = <WalkDir>::new(dir.path()).contents_first(false).content_order(ContentOrder::FilesFirst).sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()));
+    let wd = WalkDir::new(dir.path()).contents_first(false).content_order(ContentOrder::FilesFirst).sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()));
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -933,7 +933,7 @@ fn skip_current_dir() {
     dir.mkdirp("quux");
 
     let mut paths = vec![];
-    let mut it = <WalkDir>::new(dir.path()).into_iter();
+    let mut it = WalkDir::new(dir.path()).into_iter();
     while let Some(result) = it.next() {
         let ent = match result {
             Position::Entry(ent) => ent,
@@ -962,9 +962,9 @@ fn filter_entry() {
     dir.mkdirp("foo/bar/baz/abc");
     dir.mkdirp("quux");
 
-    let wd = <WalkDir>::new(dir.path())
+    let wd = WalkDir::new(dir.path())
         .into_iter()
-        .filter_entry(|ent| if let Position::Entry(dent) = ent {dent.file_name() != "baz"} else {false});
+        .filter_entry(|dent| dent.file_name() != "baz");
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -983,7 +983,7 @@ fn sort() {
     dir.mkdirp("foo/bar/baz/abc");
     dir.mkdirp("quux");
 
-    let wd = <WalkDir>::new(dir.path())
+    let wd = WalkDir::new(dir.path())
         .sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()).reverse());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
@@ -1005,7 +1005,7 @@ fn sort_max_open() {
     dir.mkdirp("foo/bar/baz/abc");
     dir.mkdirp("quux");
 
-    let wd = <WalkDir>::new(dir.path())
+    let wd = WalkDir::new(dir.path())
         .max_open(1)
         .sort_by(|a, b| a.raw.file_name().cmp(b.raw.file_name()).reverse());
     let r = dir.run_recursive(wd.into_classic());
@@ -1039,7 +1039,7 @@ fn same_file_system() {
     dir.symlink_dir("/sys", "sys-link");
 
     // First, do a sanity check that things work without following symlinks.
-    let wd = <WalkDir>::new(dir.path());
+    let wd = WalkDir::new(dir.path());
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
@@ -1049,7 +1049,7 @@ fn same_file_system() {
 
     // ... now follow symlinks and ensure we don't descend into /sys.
     let wd =
-        <WalkDir>::new(dir.path()).same_file_system(true).follow_links(true);
+        WalkDir::new(dir.path()).same_file_system(true).follow_links(true);
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
@@ -1067,7 +1067,7 @@ fn regression_skip_current_dir() {
     dir.mkdirp("foo/a/b");
     dir.mkdirp("foo/1/2");
 
-    let mut wd = <WalkDir>::new(dir.path()).max_open(1).into_classic();
+    let mut wd = WalkDir::new(dir.path()).max_open(1).into_classic();
     wd.next();
     wd.next();
     wd.next();

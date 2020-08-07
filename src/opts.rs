@@ -2,14 +2,12 @@ use std::fmt;
 use std::result;
 use std::cmp;
 
-use crate::wd;
 use crate::source;
-use crate::wd::{Position, ContentFilter, ContentOrder, FnCmp};
-use crate::dent::DirEntry;
+use crate::wd::{ContentFilter, ContentOrder, FnCmp};
 use crate::source::SourcePath;
-use crate::walk::IntoIter;
+use crate::walk::WalkDirIterator;
 use crate::dir::FlatDirEntry;
-use crate::iter::{WalkDirIter, ClassicIter};
+use crate::iter::{WalkDirIteratorItem, WalkDirIter, ClassicIter};
 
 /////////////////////////////////////////////////////////////////////////
 //// WalkDirOptions
@@ -85,7 +83,7 @@ impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
 
 
 /////////////////////////////////////////////////////////////////////////
-//// WalkDir
+//// WalkDirBuilder
 
 /// A builder to create an iterator for recursively walking a directory.
 ///
@@ -120,7 +118,7 @@ impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
 /// # use walkdir::Error;
 ///
 /// # fn try_main() -> Result<(), Error> {
-/// for entry in <WalkDir>::new("foo").min_depth(1).max_depth(3).into_classic() {
+/// for entry in WalkDir::new("foo").min_depth(1).max_depth(3).into_classic() {
 ///     println!("{}", entry?.path().display());
 /// }
 /// # Ok(())
@@ -140,7 +138,7 @@ impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
 /// # use walkdir::Error;
 ///
 /// # fn try_main() -> Result<(), Error> {
-/// for entry in <WalkDir>::new("foo").min_depth(1).into_classic() {
+/// for entry in WalkDir::new("foo").min_depth(1).into_classic() {
 ///     println!("{}", entry?.path().display());
 /// }
 /// # Ok(())
@@ -162,14 +160,14 @@ impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
 /// Note that when following symbolic/soft links, loops are detected and an
 /// error is reported.
 #[derive(Debug)]
-pub struct WalkDir<E: source::SourceExt = source::DefaultSourceExt> {
+pub struct WalkDirBuilder<E: source::SourceExt = source::DefaultSourceExt> {
     opts: WalkDirOptions<E>,
     root: E::PathBuf,
     /// Extension part
     ext: E,
 }
 
-impl<E: source::SourceExt> WalkDir<E> {
+impl<E: source::SourceExt> WalkDirBuilder<E> {
     /// Create a builder for a recursive directory iterator starting at the
     /// file path `root`. If `root` is a directory, then it is the first item
     /// yielded by the iterator. If `root` is a file, then it is the first
@@ -178,15 +176,20 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// `DirEntry` still obeys its documentation with respect to symlinks and
     /// the `follow_links` setting.)
     pub fn new<P: AsRef<E::Path>>(root: P) -> Self {
-        WalkDir {
+        Self {
             opts: WalkDirOptions::default(),
             root: root.as_ref().to_path_buf(),
             ext: E::walkdir_new(root),
         }
     }
 
+    /// Builds an iterator
+    pub fn build(self) -> WalkDirIterator<E> {
+        WalkDirIterator::<E>::new( self.opts, self.root, self.ext )
+    }
+
     /// Into classic iterator
-    pub fn into_classic(self) -> ClassicIter<E, IntoIter<E>> {
+    pub fn into_classic(self) -> ClassicIter<E, WalkDirIterator<E>> {
         self.into_iter().into_classic()
     }
 
@@ -309,7 +312,7 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// use std::ffi::OsString;
     /// use walkdir::WalkDir;
     ///
-    /// <WalkDir>::new("foo").sort_by(|a,b| a.raw.file_name().cmp(b.raw.file_name())).into_classic();
+    /// WalkDir::new("foo").sort_by(|a,b| a.raw.file_name().cmp(b.raw.file_name())).into_classic();
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
     where
@@ -351,7 +354,7 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// ```no_run
     /// use walkdir::WalkDir;
     ///
-    /// for entry in <WalkDir>::new("foo").into_classic() {
+    /// for entry in WalkDir::new("foo").into_classic() {
     ///     let entry = entry.unwrap();
     ///     println!("{}", entry.path().display());
     /// }
@@ -368,7 +371,7 @@ impl<E: source::SourceExt> WalkDir<E> {
     /// ```no_run
     /// use walkdir::WalkDir;
     ///
-    /// for entry in <WalkDir>::new("foo").contents_first(true).into_classic() {
+    /// for entry in WalkDir::new("foo").contents_first(true).into_classic() {
     ///     let entry = entry.unwrap();
     ///     println!("{}", entry.path().display());
     /// }
@@ -405,11 +408,11 @@ impl<E: source::SourceExt> WalkDir<E> {
 /////////////////////////////////////////////////////////////////////////
 //// IntoIterator
 
-impl<E: source::SourceExt> IntoIterator for WalkDir<E> {
-    type Item = Position<DirEntry<E>, DirEntry<E>, wd::Error<E>>;
-    type IntoIter = IntoIter<E>;
+impl<E: source::SourceExt> IntoIterator for WalkDirBuilder<E> {
+    type Item = WalkDirIteratorItem<E>;
+    type IntoIter = WalkDirIterator<E>;
 
-    fn into_iter(self) -> IntoIter<E> {
-        IntoIter::new( self.opts, self.root, self.ext )
+    fn into_iter(self) -> Self::IntoIter {
+        self.build()
     }
 }

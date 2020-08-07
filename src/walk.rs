@@ -106,7 +106,7 @@ enum TransitionState {
 /// [`WalkDir`]: struct.WalkDir.html
 /// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
 #[derive(Debug)]
-pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
+pub struct WalkDirIterator<E: source::SourceExt = source::DefaultSourceExt> {
     /// Options specified in the builder. Depths, max fds, etc.
     opts: WalkDirOptions<E>,
     /// The start path.
@@ -148,10 +148,10 @@ pub struct IntoIter<E: source::SourceExt = source::DefaultSourceExt> {
     ext: E::IntoIterExt,
 }
 
-impl<E: source::SourceExt> IntoIter<E> {
+impl<E: source::SourceExt> WalkDirIterator<E> {
     /// Make new
     pub fn new( opts: WalkDirOptions<E>, root: E::PathBuf, ext: E ) -> Self {
-        IntoIter {
+        Self {
             opts: opts,
             start: Some(root),
             states: vec![],
@@ -310,7 +310,7 @@ impl<E: source::SourceExt> IntoIter<E> {
     ///          .unwrap_or(false)
     /// }
     ///
-    /// let mut it = <WalkDir>::new("foo").into_classic();
+    /// let mut it = WalkDir::new("foo").into_classic();
     /// loop {
     ///     let entry = match it.next() {
     ///         None => break,
@@ -406,7 +406,7 @@ impl<E: source::SourceExt> IntoIter<E> {
 }
 
 
-impl<E: source::SourceExt> Iterator for IntoIter<E> {
+impl<E: source::SourceExt> Iterator for WalkDirIterator<E> {
     type Item = Position<DirEntry<E>, DirEntry<E>, wd::Error<E>>;
     /// Advances the iterator and returns the next value.
     ///
@@ -416,7 +416,7 @@ impl<E: source::SourceExt> Iterator for IntoIter<E> {
     /// an error value. The error will be wrapped in an Option::Some.
     fn next(&mut self) -> Option<Self::Item> {
 
-        fn get_parent_dent<E>(this: &mut IntoIter<E>, cur_depth: usize) -> DirEntry<E> where E: source::SourceExt {
+        fn get_parent_dent<E>(this: &mut WalkDirIterator<E>, cur_depth: usize) -> DirEntry<E> where E: source::SourceExt {
             let prev_state = this.states.get_mut(cur_depth-1).unwrap();
             match prev_state.get_current_position() {
                 Position::Entry(rflat) => {

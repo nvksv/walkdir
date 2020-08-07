@@ -4,7 +4,7 @@ use crate::dent::DirEntry;
 #[cfg(unix)]
 use crate::dent::DirEntryExt;
 use crate::source;
-use crate::walk::IntoIter;
+use crate::walk::WalkDirIterator;
 
 /// Type of item for Iterators
 pub type WalkDirIteratorItem<E> = Position<DirEntry<E>, DirEntry<E>, Error<E>>;
@@ -38,7 +38,7 @@ pub trait WalkDirIter<E: source::SourceExt>: Sized + Iterator<Item = WalkDirIter
     /// }
     ///
     /// # fn try_main() -> Result<(), Error> {
-    /// for entry in <WalkDir>::new("foo")
+    /// for entry in WalkDir::new("foo")
     ///                      .into_classic()
     ///                      .filter_entry(|e| !is_hidden(e)) {
     ///     println!("{}", entry?.path().display());
@@ -63,7 +63,7 @@ pub trait WalkDirIter<E: source::SourceExt>: Sized + Iterator<Item = WalkDirIter
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     fn filter_entry<P>(self, predicate: P) -> FilterEntry<E, Self, P>
     where
-        P: FnMut(&WalkDirIteratorItem<E>) -> bool,
+        P: FnMut(&DirEntry<E>) -> bool,
     {
         FilterEntry { 
             inner: self, 
@@ -82,9 +82,9 @@ pub trait WalkDirIter<E: source::SourceExt>: Sized + Iterator<Item = WalkDirIter
     }
 }
 
-impl<E: source::SourceExt> WalkDirIter<E> for IntoIter<E> {
+impl<E: source::SourceExt> WalkDirIter<E> for WalkDirIterator<E> {
     fn skip_current_dir(&mut self) {
-        IntoIter::<E>::skip_current_dir(self);
+        WalkDirIterator::<E>::skip_current_dir(self);
     }
 }
 
@@ -120,7 +120,7 @@ pub trait ClassicWalkDirIter<E: source::SourceExt>: Sized + Iterator<Item = wd::
     /// }
     ///
     /// # fn try_main() -> Result<(), Error> {
-    /// for entry in <WalkDir>::new("foo")
+    /// for entry in WalkDir::new("foo")
     ///                      .into_classic()
     ///                      .filter_entry(|e| !is_hidden(e)) {
     ///     println!("{}", entry?.path().display());
@@ -238,7 +238,7 @@ pub struct FilterEntry<E, I, P>
 where
     E: source::SourceExt,
     I: Iterator<Item = WalkDirIteratorItem<E>> + WalkDirIter<E>,
-    P: FnMut(&WalkDirIteratorItem<E>) -> bool,
+    P: FnMut(&DirEntry<E>) -> bool,
 {
     inner: I,
     predicate: P,
@@ -246,7 +246,7 @@ where
 
 impl<E, I, P> Iterator for FilterEntry<E, I, P>
 where
-    P: FnMut(&WalkDirIteratorItem<E>) -> bool,
+    P: FnMut(&DirEntry<E>) -> bool,
     I: Iterator<Item = WalkDirIteratorItem<E>> + WalkDirIter<E>,
     E: source::SourceExt,
 {
@@ -265,13 +265,13 @@ where
                 None => return None,
             };
 
-            if !(self.predicate)(&item) {
-                if let Position::Entry(dent) = item {
+            if let Position::Entry(ref dent) = item {
+                if !(self.predicate)(dent) {
                     if dent.is_dir() {
                         self.inner.skip_current_dir();
                     }
+                    continue
                 }
-                continue;
             }
 
             return Some(item);
@@ -281,7 +281,7 @@ where
 
 impl<E, I, P> FilterEntry<E, I, P>
 where
-    P: FnMut(&WalkDirIteratorItem<E>) -> bool,
+    P: FnMut(&DirEntry<E>) -> bool,
     I: Iterator<Item = WalkDirIteratorItem<E>> + WalkDirIter<E>,
     E: source::SourceExt,
 {
@@ -308,7 +308,7 @@ where
     /// }
     ///
     /// # fn try_main() -> Result<(), Error> {
-    /// for entry in <WalkDir>::new("foo")
+    /// for entry in WalkDir::new("foo")
     ///                      .into_classic()
     ///                      .filter_entry(|e| !is_hidden(e)) {
     ///     println!("{}", entry?.path().display());
@@ -356,7 +356,7 @@ where
     ///          .unwrap_or(false)
     /// }
     ///
-    /// let mut it = <WalkDir>::new("foo").into_classic();
+    /// let mut it = WalkDir::new("foo").into_classic();
     /// loop {
     ///     let entry = match it.next() {
     ///         None => break,
@@ -385,7 +385,7 @@ where
 
 impl<E, I, P> WalkDirIter<E> for FilterEntry<E, I, P>
     where
-        P: FnMut(&WalkDirIteratorItem<E>) -> bool,
+        P: FnMut(&DirEntry<E>) -> bool,
         I: Iterator<Item = WalkDirIteratorItem<E>> + WalkDirIter<E>,
         E: source::SourceExt,
 {
@@ -499,7 +499,7 @@ where
     /// }
     ///
     /// # fn try_main() -> Result<(), Error> {
-    /// for entry in <WalkDir>::new("foo")
+    /// for entry in WalkDir::new("foo")
     ///                      .into_classic()
     ///                      .filter_entry(|e| !is_hidden(e)) {
     ///     println!("{}", entry?.path().display());
@@ -547,7 +547,7 @@ where
     ///          .unwrap_or(false)
     /// }
     ///
-    /// let mut it = <WalkDir>::new("foo").into_classic();
+    /// let mut it = WalkDir::new("foo").into_classic();
     /// loop {
     ///     let entry = match it.next() {
     ///         None => break,
