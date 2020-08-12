@@ -4,7 +4,6 @@ use crate::wd;
 use crate::source;
 //use crate::source::{SourceFsDirEntry, SourceFsFileType, SourceFsMetadata};
 //use crate::error::ErrorInner;
-use crate::rawdent::RawDirEntry;
 use crate::dir::FlatDirEntry;
 
 /// A directory entry.
@@ -43,7 +42,7 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     // ty: E::FsFileType,
 
     /// Raw dent
-    raw: RawDirEntry<E>,
+    raw: E::FsDirEntry,
     /// Is normal dir
     is_dir: bool,
     /// Is set when this entry was created from a symbolic link and the user
@@ -173,7 +172,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     // }
 
     // pub(crate) fn from_raw(
-    //     raw: RawDirEntry<E>,
+    //     raw: E::FsDirEntry,
     //     is_dir: bool,
     //     follow_link: bool,
     //     loop_link: Option<usize>,
@@ -211,17 +210,17 @@ impl<E: source::SourceExt> DirEntry<E> {
     }
 }
 
-impl<E: source::SourceExt> Clone for DirEntry<E> {
-    fn clone(&self) -> Self {
-        Self {
-            raw: self.raw.clone(),
-            is_dir: self.is_dir,
-            follow_link: self.follow_link,
-            loop_link: self.loop_link.clone(),
-            depth: self.depth,
-        }
-    }
-}
+// impl<E: source::SourceExt> Clone for DirEntry<E> {
+//     fn clone(&self) -> Self {
+//         Self {
+//             raw: self.raw.clone(),
+//             is_dir: self.is_dir,
+//             follow_link: self.follow_link,
+//             loop_link: self.loop_link.clone(),
+//             depth: self.depth,
+//         }
+//     }
+// }
 
 impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

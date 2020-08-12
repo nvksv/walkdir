@@ -4,15 +4,15 @@ use std::fmt::Debug;
 use std::fs;
 use std::io;
 
-use crate::rawdent::RawDirEntry;
-
 /// Useful stub for nothing
 #[derive(Debug, Clone, Default)]
 pub struct Nil {}
 
 impl SourceExt for Nil {
+    type BuilderCtx = Nil;
+    
     type OptionsExt = Nil;
-    type IntoIterExt = Nil;
+    type IteratorExt = Nil;
     type AncestorExt = Nil;
     type RawDirEntryExt = Nil;
 
@@ -28,7 +28,7 @@ impl SourceExt for Nil {
     type SameFileHandle = ();
 
     #[allow(unused_variables)]
-    fn intoiter_new(self) -> Self::IntoIterExt {
+    fn iterator_new(self) -> Self::IteratorExt {
         Self {}
     }
 
@@ -96,7 +96,7 @@ impl SourceExt for Nil {
     }
 
     #[allow(unused_variables)]
-    fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self {
+    fn builder_new<P: AsRef<Self::Path>>(root: P, ctx: Option<Self::BuilderCtx>) -> Self {
         Self {}
     }
 

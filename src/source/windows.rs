@@ -7,8 +7,6 @@ use std::path;
 
 use same_file;
 
-use crate::rawdent::RawDirEntry;
-
 #[derive(Debug)]
 pub struct AncestorWindowsExt {
     /// An open file to this ancesor. This is only used on Windows where
@@ -34,8 +32,10 @@ pub struct DirEntryWindowsExt {
 pub struct WalkDirWindowsExt {}
 
 impl SourceExt for WalkDirWindowsExt {
+    type BuilderCtx = Nil;
+
     type OptionsExt = Nil;
-    type IntoIterExt = Nil;
+    type IteratorExt = Nil;
     type AncestorExt = AncestorWindowsExt;
     type RawDirEntryExt = DirEntryWindowsExt;
 
@@ -51,8 +51,8 @@ impl SourceExt for WalkDirWindowsExt {
     type SameFileHandle = same_file::Handle;
 
     #[allow(unused_variables)]
-    fn intoiter_new(self) -> Self::IntoIterExt {
-        Self::IntoIterExt {}
+    fn iterator_new(self) -> Self::IteratorExt {
+        Self::IteratorExt {}
     }
 
     fn get_handle<P: AsRef<Self::Path>>(
@@ -126,7 +126,7 @@ impl SourceExt for WalkDirWindowsExt {
     }
 
     #[allow(unused_variables)]
-    fn walkdir_new<P: AsRef<Self::Path>>(root: P) -> Self {
+    fn builder_new<P: AsRef<Self::Path>>(root: P, ctx: Option<Self::BuilderCtx>) -> Self {
         Self {}
     }
 

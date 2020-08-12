@@ -179,7 +179,16 @@ impl<E: source::SourceExt> WalkDirBuilder<E> {
         Self {
             opts: WalkDirOptions::default(),
             root: root.as_ref().to_path_buf(),
-            ext: E::walkdir_new(root),
+            ext: E::builder_new(root, None),
+        }
+    }
+
+    /// Create a builder with context
+    pub fn new_with_context<P: AsRef<E::Path>>(root: P, ctx: E::BuilderCtx) -> Self {
+        Self {
+            opts: WalkDirOptions::default(),
+            root: root.as_ref().to_path_buf(),
+            ext: E::builder_new(root, Some(ctx)),
         }
     }
 

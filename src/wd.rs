@@ -4,6 +4,37 @@ use crate::dir::FlatDirEntry;
 
 pub use error::{Error, ErrorInner};
 
+
+pub trait IntoSome<T> {
+    fn into_some(self) -> Option<T>;
+}
+
+impl<T> IntoSome<T> for T {
+    fn into_some(self) -> Option<Self> {
+        Some(self)
+    }
+}
+
+pub trait IntoOk<T, E> {
+    fn into_ok(self) -> std::result::Result<T, E>;
+}
+
+impl<T, E> IntoOk<T, E> for T {
+    fn into_ok(self) -> std::result::Result<Self, E> {
+        Ok(self)
+    }
+}
+
+pub trait IntoErr<T, E> {
+    fn into_err(self) -> std::result::Result<T, E>;
+}
+
+impl<T, E> IntoErr<T, E> for E {
+    fn into_err(self) -> std::result::Result<T, Self> {
+        Err(self)
+    }
+}
+
 /// A result type for walkdir operations.
 ///
 /// Note that this result type embeds the error type in this crate. This

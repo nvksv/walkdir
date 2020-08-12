@@ -21,7 +21,7 @@ pub struct WalkDirUnixExt {}
 
 impl SourceExt for WalkDirUnixExt {
     type OptionsExt = Nil;
-    type IntoIterExt = Nil;
+    type IteratorExt = Nil;
     type AncestorExt = Nil;
     type DirEntryExt = DirEntryUnixExt;
     type RawDirEntryExt = DirEntryUnixExt;
@@ -38,8 +38,8 @@ impl SourceExt for WalkDirUnixExt {
     type SameFileHandle = same_file::Handle;
 
     #[allow(unused_variables)]
-    fn intoiter_new(self) -> Self::IntoIterExt {
-        Self::IntoIterExt {}
+    fn iterator_new(self) -> Self::IteratorExt {
+        Self::IteratorExt {}
     }
 
     fn get_handle<P: AsRef<Self::Path>>(

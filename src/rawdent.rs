@@ -1,9 +1,18 @@
 use std::fmt;
 
-use crate::wd::{self};
+use crate::wd::{self, IntoErr, IntoOk};
 use crate::source;
 use crate::source::{SourceFsDirEntry, SourceFsFileType, SourceFsMetadata};
-use crate::error::ErrorInner;
+use crate::error::{ErrorInner, into_io_err, into_path_err};
+
+#[derive(Debug)]
+enum RawDirEntryKind<E: source::SourceExt> {
+    FromPath,
+    FromFsDirEntry {
+        /// Original DirEntry
+        fs: E::FsDirEntry,
+    }
+}
 
 /// A directory entry.
 ///
@@ -39,6 +48,8 @@ pub struct RawDirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     path: E::PathBuf,
     /// The file type. Necessary for recursive iteration, so store it.
     ty: E::FsFileType,
+    /// From-specific part
+    kind: RawDirEntryKind<E>,
     /// The source-specific part.
     ext: E::RawDirEntryExt,
 }
@@ -94,18 +105,18 @@ impl<E: source::SourceExt> RawDirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    pub fn metadata(&self, follow_link: bool) -> wd::Result<E::FsMetadata, E> {
-        self.metadata_internal(follow_link).map_err(|inner| wd::Error::from_inner(inner, 0))
-    }
+    // pub fn metadata(&self, follow_link: bool) -> wd::Result<E::FsMetadata, E> {
+    //     self.metadata_internal(follow_link).map_err(|inner| wd::Error::from_inner(inner, 0))
+    // }
 
-    fn metadata_internal(&self, follow_link: bool) -> wd::ResultInner<E::FsMetadata, E> {
-        if follow_link {
-            E::metadata(&self.path)
-        } else {
-            E::symlink_metadata_internal(self, &self.ext)
-        }
-        .map_err(ErrorInner::<E>::from_io)
-    }
+    // fn metadata_internal(&self, follow_link: bool) -> wd::ResultInner<E::FsMetadata, E> {
+    //     if follow_link {
+    //         E::metadata(&self.path)
+    //     } else {
+    //         E::symlink_metadata_internal(self, &self.ext)
+    //     }
+    //     .map_err(ErrorInner::<E>::from_io)
+    // }
 
     /// Return the file type for the file that this entry points to.
     ///
@@ -171,39 +182,58 @@ impl<E: source::SourceExt> RawDirEntry<E> {
     }
 
     pub(crate) fn from_path(
-        pb: E::PathBuf,
-        follow_link: bool,
+        path: E::PathBuf,
+        ctx: &mut E::IteratorExt,
     ) -> wd::ResultInner<Self, E> {
-        let md = if follow_link {
-            E::metadata(&pb)
-                .map_err(|err| ErrorInner::<E>::from_path(pb.clone(), err))?
-        } else {
-            E::symlink_metadata(&pb)
-                .map_err(|err| ErrorInner::<E>::from_path(pb.clone(), err))?
-        };
-        Ok(Self {
-            path: pb,
-            ty: md.file_type(),
-            ext: E::rawdent_from_metadata(md),
-        })
+
+        let md  = E::metadata(path).map_err(into_io_err)?;
+        let ext = E::rawdent_from_path( &path, &md, ctx ).map_err(|err| into_path_err(path, err))?;
+
+        Self {
+            path,
+            ty:   md.file_type(),
+            kind: RawDirEntryKind::FromPath,
+            ext,
+        }.into_ok()
+
     }
+
+    // pub(crate) fn from_path(
+    //     pb: E::PathBuf,
+    // ) -> wd::ResultInner<Self, E> {
+    //     let md = if follow_link {
+    //         E::metadata(&pb)
+    //             .map_err(|err| ErrorInner::<E>::from_path(pb.clone(), err))?
+    //     } else {
+    //         E::symlink_metadata(&pb)
+    //             .map_err(|err| ErrorInner::<E>::from_path(pb.clone(), err))?
+    //     };
+
+    //     Self {
+    //         path: pb,
+    //         ty: md.file_type(),
+    //         ext: E::rawdent_from_metadata(md),
+    //     }.into_ok()
+    // }
 }
 
-impl<E: source::SourceExt> Clone for RawDirEntry<E> {
-    fn clone(&self) -> Self {
-        Self {
-            path: self.path.clone(),
-            ty: self.ty,
-            ext: self.ext.clone(),
-        }
-    }
-}
+// impl<E: source::SourceExt> Clone for E::FsDirEntry {
+//     fn clone(&self) -> Self {
+//         Self {
+//             path: self.path.clone(),
+//             ty: self.ty,
+//             ext: self.ext.clone(),
+//         }
+//     }
+// }
 
 impl<E: source::SourceExt> fmt::Debug for RawDirEntry<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RawDirEntry")
             .field("path", &self.path)
-            .field("ext", &self.ext)
+            .field("ty",   &self.ty)
+            .field("kind", &self.kind)
+            .field("ext",  &self.ext)
             .finish()
     }
 }

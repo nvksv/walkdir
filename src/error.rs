@@ -4,7 +4,6 @@ use std::io;
 
 use crate::source;
 use crate::source::{SourcePath, SourcePathBuf};
-use crate::rawdent::RawDirEntry;
 
 
 /// An error produced by recursively walking a directory.
@@ -34,14 +33,20 @@ pub struct Error<E: source::SourceExt = source::DefaultSourceExt> {
 
 #[derive(Debug)]
 pub enum ErrorInner<E: source::SourceExt> {
-    Io { path: Option<E::PathBuf>, err: Option<io::Error> },
-    Loop { ancestor: E::PathBuf, child: E::PathBuf },
+    Io { 
+        path: Option<E::PathBuf>, 
+        err: Option<E::FsError> 
+    },
+    Loop { 
+        ancestor: E::PathBuf, 
+        child: E::PathBuf 
+    },
 }
 
 impl<E: source::SourceExt> ErrorInner<E> {
     pub(crate) fn from_path(
         pb: E::PathBuf,
-        err: io::Error,
+        err: E::FsError,
     ) -> Self {
         Self::Io { 
             path: Some(pb), 
@@ -49,14 +54,14 @@ impl<E: source::SourceExt> ErrorInner<E> {
         }
     }
 
-    pub(crate) fn from_entry(raw_dent: &RawDirEntry<E>, err: io::Error) -> Self {
+    pub(crate) fn from_entry(raw_dent: &E::FsDirEntry, err: E::FsError) -> Self {
         Self::Io {
             path: Some(raw_dent.path().to_path_buf()),
             err: Some(err),
         }
     }
 
-    pub(crate) fn from_io(err: io::Error) -> Self {
+    pub(crate) fn from_io(err: E::FsError) -> Self {
         Self::Io { 
             path: None, 
             err: Some(err)
@@ -91,7 +96,7 @@ impl<E: source::SourceExt> error::Error for Error<E> {
         }
     }
 
-    fn cause(&self) -> Option<&dyn error::Error> {
+    fn cause(&self) -> Option<&dyn std::error::Error> {
         self.source()
     }
 
@@ -131,7 +136,7 @@ impl<E: source::SourceExt> fmt::Display for Error<E> {
     }
 }
 
-impl<E: 'static + source::SourceExt> From<Error<E>> for io::Error {
+impl<E: 'static + source::SourceExt> From<Error<E>> for E::FsError {
     /// Convert the [`Error`] to an [`io::Error`], preserving the original
     /// [`Error`] as the ["inner error"]. Note that this also makes the display
     /// of the error include the context.
@@ -143,7 +148,7 @@ impl<E: 'static + source::SourceExt> From<Error<E>> for io::Error {
     /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
     /// ["inner error"]: https://doc.rust-lang.org/std/io/struct.Error.html#method.into_inner
     /// [`into_io_error`]: struct.WalkDir.html#method.into_io_error
-    fn from(walk_err: Error<E>) -> io::Error {
+    fn from(walk_err: Error<E>) -> E::FsError {
         let kind = match walk_err {
             Error { inner: ErrorInner::Io { err: Some(ref err), .. }, .. } => err.kind(),
             Error { inner: ErrorInner::Io { err: None, .. }, .. } => {
@@ -153,7 +158,7 @@ impl<E: 'static + source::SourceExt> From<Error<E>> for io::Error {
                 io::ErrorKind::Other
             }
         };
-        io::Error::new(kind, walk_err)
+        E::FsError::new(kind, walk_err)
     }
 }
 
@@ -270,7 +275,7 @@ impl<E: source::SourceExt> Error<E> {
     /// [`Error`]: struct.Error.html
     /// [`into_io_error`]: struct.Error.html#method.into_io_error
     /// [impl]: struct.Error.html#impl-From%3CError%3E
-    pub fn io_error(&self) -> Option<&io::Error> {
+    pub fn io_error(&self) -> Option<&E::FsError> {
         match self.inner {
             ErrorInner::Io { ref err, .. } => err.as_ref(),
             ErrorInner::Loop { .. } => None,
@@ -282,7 +287,7 @@ impl<E: source::SourceExt> Error<E> {
     ///
     /// [`io_error`]: struct.Error.html#method.io_error
     /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
-    pub fn into_io_error(self) -> Option<io::Error> {
+    pub fn into_io_error(self) -> Option<E::FsError> {
         match self.inner {
             ErrorInner::Io { err, .. } => err,
             ErrorInner::Loop { .. } => None,
@@ -300,3 +305,10 @@ impl<E: source::SourceExt> Error<E> {
     }
 }
 
+pub fn into_io_err<E: source::SourceExt>( err: E::FsError ) -> ErrorInner<E> {
+    ErrorInner::<E>::from_io(err)
+}
+
+pub fn into_path_err<E: source::SourceExt>( path: E::PathBuf, err: E::FsError ) -> ErrorInner<E> {
+    ErrorInner::<E>::from_path( path, err )
+}

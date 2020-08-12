@@ -4,13 +4,11 @@ use std::vec;
 
 
 use crate::wd::{self, ContentFilter, Position, DeviceNum};
-//use crate::rawdent::RawDirEntry;
-use crate::rawdent::RawDirEntry;
 use crate::dent::DirEntry;
 #[cfg(unix)]
 use crate::dent::DirEntryExt;
 use crate::error::ErrorInner;
-use crate::source::{self, SourceFsFileType, SourceFsMetadata, SourcePath};
+use crate::source::{self, SourceFsDirEntry, SourceFsFileType, SourceFsMetadata, SourcePath};
 use crate::dir::{DirState, FlatDirEntry};
 use crate::opts::{WalkDirOptions, WalkDirOptionsImmut};
 
@@ -40,7 +38,7 @@ macro_rules! rtry {
 
 macro_rules! process_dent {
     ($self:expr, $depth:expr) => {
-        ((|depth, opts_immut, root_device, ancestors| move |raw_dent: RawDirEntry<E>| Self::process_rawdent(raw_dent, depth, opts_immut, root_device, ancestors))($depth, &$self.opts.immut, &$self.root_device, &$self.ancestors))
+        ((|depth, opts_immut, root_device, ancestors| move |raw_dent: E::FsDirEntry| Self::process_rawdent(raw_dent, depth, opts_immut, root_device, ancestors))($depth, &$self.opts.immut, &$self.root_device, &$self.ancestors))
     };
 }
 
@@ -62,7 +60,7 @@ struct Ancestor<E: source::SourceExt> {
 
 impl<E: source::SourceExt> Ancestor<E> {
     /// Create a new ancestor from the given directory path.
-    fn new(raw_dent: &RawDirEntry<E>) -> wd::ResultInner<Self, E> {
+    fn new(raw_dent: &E::FsDirEntry) -> wd::ResultInner<Self, E> {
         Ok(Self {
             path: raw_dent.path().to_path_buf(),
             ext: E::ancestor_new(raw_dent).map_err(|err| ErrorInner::<E>::from_io(err))?,
@@ -145,7 +143,7 @@ pub struct WalkDirIterator<E: source::SourceExt = source::DefaultSourceExt> {
     /// handling the root path.
     root_device: Option<DeviceNum>,
     /// Extension part.
-    ext: E::IntoIterExt,
+    ext: E::IteratorExt,
 }
 
 impl<E: source::SourceExt> WalkDirIterator<E> {
@@ -160,7 +158,7 @@ impl<E: source::SourceExt> WalkDirIterator<E> {
             oldest_opened: 0,
             depth: 0,
             root_device: None,
-            ext: E::intoiter_new(ext),
+            ext: E::iterator_new(ext),
         }
     }
 
@@ -168,7 +166,7 @@ impl<E: source::SourceExt> WalkDirIterator<E> {
     // - Some(Ok((dent, is_dir))) -- normal entry to yielding
     // - Some(Err(_)) -- some error occured
     // - None -- entry must be ignored
-    fn process_rawdent(raw_dent: RawDirEntry<E>, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>, ancestors: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<FlatDirEntry<E>, E>> {
+    fn process_rawdent(raw_dent: E::FsDirEntry, depth: usize, opts_immut: &WalkDirOptionsImmut<E>, root_device: &Option<DeviceNum>, ancestors: &Vec<Ancestor<E>>) -> Option<wd::ResultInner<FlatDirEntry<E>, E>> {
         
         let (new_raw_dent, loop_link, follow_link) = if raw_dent.file_type().is_symlink() && opts_immut.follow_links {
             let (new_raw_dent, loop_link) = ortry!(Self::follow(raw_dent, ancestors));
@@ -213,16 +211,16 @@ impl<E: source::SourceExt> WalkDirIterator<E> {
                 .map_err(|e| ErrorInner::<E>::from_path(root.clone(), e));
             self.root_device = Some(rtry!(result));
         }
-        let raw_dent = rtry!(RawDirEntry::<E>::from_path(root, false));
+        let raw_dent = rtry!(E::FsDirEntry::from_path(root));
 
         self.push_root(raw_dent, 0)?;
 
         Ok(())
     }
 
-    fn push_root(&mut self, dent: RawDirEntry<E>, new_depth: usize) -> wd::ResultInner<(), E> {
+    fn push_root(&mut self, dent: E::FsDirEntry, new_depth: usize) -> wd::ResultInner<(), E> {
 
-        let state = DirState::<E>::new_once( dent.clone(), new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) );
+        let state = DirState::<E>::new_once( dent, new_depth, &self.opts.immut, &mut self.opts.sorter, &process_dent!(self, new_depth) );
 
         self.states.push(state);
 
@@ -341,7 +339,9 @@ impl<E: source::SourceExt> WalkDirIterator<E> {
 
 
 
-    fn follow(raw_dent: RawDirEntry<E>, ancestors: &Vec<Ancestor<E>>) -> wd::ResultInner<(RawDirEntry<E>, Option<usize>), E> {
+    fn follow(raw: E::FsDirEntry, ancestors: &Vec<Ancestor<E>>) -> wd::ResultInner<(E::FsDirEntry, Option<usize>), E> {
+        if raw.
+
         let dent = RawDirEntry::<E>::from_path(
             raw_dent.path().to_path_buf(),
             true,
@@ -382,7 +382,7 @@ impl<E: source::SourceExt> WalkDirIterator<E> {
 
     }
 
-    fn is_same_file_system(root_device: &Option<DeviceNum>, dent: &RawDirEntry<E>) -> wd::ResultInner<bool, E> {
+    fn is_same_file_system(root_device: &Option<DeviceNum>, dent: &E::FsDirEntry) -> wd::ResultInner<bool, E> {
         let dent_device = E::device_num(dent.path())
             .map_err(|err| ErrorInner::<E>::from_entry(dent, err))?;
         Ok(root_device
