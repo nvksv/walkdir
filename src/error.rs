@@ -1,9 +1,7 @@
-use std::error;
 use std::fmt;
-use std::io;
 
 use crate::source;
-use crate::source::{SourcePath, SourcePathBuf};
+use crate::source::{SourcePath, SourcePathBuf, SourceFsError, SourceFsDirEntry};
 
 
 /// An error produced by recursively walking a directory.
@@ -86,7 +84,7 @@ impl<E: source::SourceExt> ErrorInner<E> {
     }
 }
 
-impl<E: source::SourceExt> error::Error for Error<E> {
+impl<E: source::SourceExt> std::error::Error for Error<E> {
     #[allow(deprecated)]
     fn description(&self) -> &str {
         match self.inner {
@@ -136,31 +134,31 @@ impl<E: source::SourceExt> fmt::Display for Error<E> {
     }
 }
 
-impl<E: 'static + source::SourceExt> From<Error<E>> for E::FsError {
-    /// Convert the [`Error`] to an [`io::Error`], preserving the original
-    /// [`Error`] as the ["inner error"]. Note that this also makes the display
-    /// of the error include the context.
-    ///
-    /// This is different from [`into_io_error`] which returns the original
-    /// [`io::Error`].
-    ///
-    /// [`Error`]: struct.Error.html
-    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
-    /// ["inner error"]: https://doc.rust-lang.org/std/io/struct.Error.html#method.into_inner
-    /// [`into_io_error`]: struct.WalkDir.html#method.into_io_error
-    fn from(walk_err: Error<E>) -> E::FsError {
-        let kind = match walk_err {
-            Error { inner: ErrorInner::Io { err: Some(ref err), .. }, .. } => err.kind(),
-            Error { inner: ErrorInner::Io { err: None, .. }, .. } => {
-                io::ErrorKind::Other
-            },
-            Error { inner: ErrorInner::Loop { .. }, .. } => {
-                io::ErrorKind::Other
-            }
-        };
-        E::FsError::new(kind, walk_err)
-    }
-}
+// impl<E: 'static + source::SourceExt> From<Error<E>> for E::FsError {
+//     /// Convert the [`Error`] to an [`io::Error`], preserving the original
+//     /// [`Error`] as the ["inner error"]. Note that this also makes the display
+//     /// of the error include the context.
+//     ///
+//     /// This is different from [`into_io_error`] which returns the original
+//     /// [`io::Error`].
+//     ///
+//     /// [`Error`]: struct.Error.html
+//     /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
+//     /// ["inner error"]: https://doc.rust-lang.org/std/io/struct.Error.html#method.into_inner
+//     /// [`into_io_error`]: struct.WalkDir.html#method.into_io_error
+//     fn from(walk_err: Error<E>) -> E::FsError {
+//         let kind = match walk_err {
+//             Error { inner: ErrorInner::Io { err: Some(ref err), .. }, .. } => err.kind(),
+//             Error { inner: ErrorInner::Io { err: None, .. }, .. } => {
+//                 io::ErrorKind::Other
+//             },
+//             Error { inner: ErrorInner::Loop { .. }, .. } => {
+//                 io::ErrorKind::Other
+//             }
+//         };
+//         E::FsError::new(kind, walk_err)
+//     }
+// }
 
 
 
@@ -309,6 +307,6 @@ pub fn into_io_err<E: source::SourceExt>( err: E::FsError ) -> ErrorInner<E> {
     ErrorInner::<E>::from_io(err)
 }
 
-pub fn into_path_err<E: source::SourceExt>( path: E::PathBuf, err: E::FsError ) -> ErrorInner<E> {
-    ErrorInner::<E>::from_path( path, err )
+pub fn into_path_err<E: source::SourceExt, P: AsRef<E::Path>>( path: P, err: E::FsError ) -> ErrorInner<E> {
+    ErrorInner::<E>::from_path( path.as_ref().to_path_buf(), err )
 }

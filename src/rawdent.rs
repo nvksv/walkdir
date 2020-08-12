@@ -1,16 +1,14 @@
 use std::fmt;
 
-use crate::wd::{self, IntoErr, IntoOk};
+use crate::wd::{self, IntoSome, IntoErr, IntoOk};
 use crate::source;
-use crate::source::{SourceFsDirEntry, SourceFsFileType, SourceFsMetadata};
-use crate::error::{ErrorInner, into_io_err, into_path_err};
+use crate::source::{SourcePath, SourceFsDirEntry, SourceFsFileType, SourceFsMetadata};
+use crate::error::{into_io_err, into_path_err};
 
-#[derive(Debug)]
 enum RawDirEntryKind<E: source::SourceExt> {
     FromPath,
     FromFsDirEntry {
-        /// Original DirEntry
-        fs: E::FsDirEntry,
+        fsdent: E::FsDirEntry,
     }
 }
 
@@ -46,9 +44,12 @@ pub struct RawDirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     ///
     /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
     path: E::PathBuf,
+    /// Is set when this entry was created from a symbolic link and the user
+    /// expects to follow symbolic links.
+    follow_link: bool,
     /// The file type. Necessary for recursive iteration, so store it.
     ty: E::FsFileType,
-    /// From-specific part
+    /// Kind of this entry
     kind: RawDirEntryKind<E>,
     /// The source-specific part.
     ext: E::RawDirEntryExt,
@@ -105,9 +106,12 @@ impl<E: source::SourceExt> RawDirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    // pub fn metadata(&self, follow_link: bool) -> wd::Result<E::FsMetadata, E> {
-    //     self.metadata_internal(follow_link).map_err(|inner| wd::Error::from_inner(inner, 0))
-    // }
+    fn metadata(
+        &self, 
+        ctx: &mut E::IteratorExt,
+    ) -> wd::ResultInner<E::FsMetadata, E> {
+        E::metadata(&self.path, self.follow_link, Some(&self.ext), ctx).map_err(into_io_err)
+    }
 
     // fn metadata_internal(&self, follow_link: bool) -> wd::ResultInner<E::FsMetadata, E> {
     //     if follow_link {
@@ -142,6 +146,10 @@ impl<E: source::SourceExt> RawDirEntry<E> {
         self.ty.is_symlink()
     }
 
+    pub fn follow_link(&self) -> bool {
+        self.follow_link
+    }
+
     /// Return the file name of this entry.
     ///
     /// If this entry has no file name (e.g., `/`), then the full path is
@@ -161,41 +169,70 @@ impl<E: source::SourceExt> RawDirEntry<E> {
     // }
 
     /// Returns true if and only if this entry points to a directory.
-    pub(crate) fn is_dir(&self) -> bool {
-        E::is_dir(self, &self.ext)
+    pub fn is_dir(&self) -> bool {
+        match self.get_fs_dir_entry() {
+            Some(fsdent) => E::is_dir(fsdent, &self.ext),
+            None => self.file_type().is_dir(),
+        }
+        
     }
 
-    pub(crate) fn from_fsentry(
-        ent: &E::FsDirEntry
+    fn from_fsentry(
+        fsdent: E::FsDirEntry,
     ) -> wd::ResultInner<Self, E> {
-        let path = ent.path();
-        let ty = ent
-            .file_type()
-            .map_err(|err| ErrorInner::<E>::from_path(path.clone(), err))?;
-        let ext = E::rawdent_from_fsentry(ent)
-            .map_err(|err| ErrorInner::<E>::from_path(path.clone(), err))?;
+        let path = fsdent.path();
+        let ty = fsdent.file_type().map_err(|err| into_path_err(&path, err))?;
+        let ext = E::rawdent_from_fsentry(&fsdent).map_err(into_io_err)?;
         Ok(Self {
             path,
+            follow_link: false,
             ty,
+            kind: RawDirEntryKind::FromFsDirEntry { fsdent },
             ext,
         })
     }
 
-    pub(crate) fn from_path(
-        path: E::PathBuf,
+    fn from_path_internal<P: AsRef<E::Path>>(
+        path: P,
         ctx: &mut E::IteratorExt,
+        follow_link: bool,
     ) -> wd::ResultInner<Self, E> {
 
-        let md  = E::metadata(path).map_err(into_io_err)?;
-        let ext = E::rawdent_from_path( &path, &md, ctx ).map_err(|err| into_path_err(path, err))?;
+        let md  = E::metadata(path, follow_link, None, ctx).map_err(into_io_err)?;
+        let ty  = md.file_type().clone();
+        let ext = E::rawdent_from_path( path, follow_link, md, ctx ).map_err(|err| into_path_err(path, err))?;
 
         Self {
-            path,
-            ty:   md.file_type(),
+            path: path.as_ref().to_path_buf(),
+            follow_link,
+            ty,
             kind: RawDirEntryKind::FromPath,
             ext,
         }.into_ok()
 
+    }
+
+    pub fn from_path(
+        path: E::PathBuf,
+        ctx: &mut E::IteratorExt,
+    ) -> wd::ResultInner<Self, E> {
+        Self::from_path_internal( path, ctx, false )
+    }
+
+    pub fn read_dir(&self, ctx: &mut E::IteratorExt) -> wd::ResultInner<ReadDir<E>, E> {
+        let rd = E::read_dir(self.path(), &self.ext, ctx).map_err(into_io_err)?;
+        ReadDir::<E>::new( rd ).into_ok()
+    }
+
+    pub fn follow(&self, ctx: &mut E::IteratorExt) -> wd::ResultInner<Self, E> {
+        Self::from_path_internal( self.path(), ctx, true )
+    }
+
+    pub fn get_fs_dir_entry(&self) -> Option<&E::FsDirEntry> {
+        match &self.kind {
+            RawDirEntryKind::FromFsDirEntry{ ref fsdent } => Some(fsdent),
+            RawDirEntryKind::FromPath => None,
+        }
     }
 
     // pub(crate) fn from_path(
@@ -217,7 +254,7 @@ impl<E: source::SourceExt> RawDirEntry<E> {
     // }
 }
 
-// impl<E: source::SourceExt> Clone for E::FsDirEntry {
+// impl<E: source::SourceExt> Clone for RawDirEntry<E> {
 //     fn clone(&self) -> Self {
 //         Self {
 //             path: self.path.clone(),
@@ -230,12 +267,132 @@ impl<E: source::SourceExt> RawDirEntry<E> {
 impl<E: source::SourceExt> fmt::Debug for RawDirEntry<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RawDirEntry")
-            .field("path", &self.path)
-            .field("ty",   &self.ty)
-            .field("kind", &self.kind)
-            .field("ext",  &self.ext)
+            .field("path",        &self.path)
+            .field("follow_link", &self.follow_link)
+            .field("ty",          &self.ty)
+            .field("ext",         &self.ext)
             .finish()
     }
 }
 
 
+
+
+/////////////////////////////////////////////////////////////////////////
+//// ReadDir
+
+/// A sequence of unconsumed directory entries.
+///
+/// This represents the opened or closed state of a directory handle. When
+/// open, future entries are read by iterating over the raw `fs::ReadDir`.
+/// When closed, all future entries are read into memory. Iteration then
+/// proceeds over a [`Vec<fs::DirEntry>`].
+///
+/// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
+/// [`Vec<fs::DirEntry>`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html
+#[derive(Debug)]
+pub enum ReadDir<E: source::SourceExt> {
+
+    /// The single item (used for root)
+    Once { item: Option<RawDirEntry<E>> },
+
+    /// An opened handle.
+    ///
+    /// This includes the depth of the handle itself.
+    ///
+    /// If there was an error with the initial [`fs::read_dir`] call, then it
+    /// is stored here. (We use an [`Option<...>`] to make yielding the error
+    /// exactly once simpler.)
+    ///
+    /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
+    /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
+    Opened { rd: E::FsReadDir },
+
+    /// A closed handle.
+    ///
+    /// All remaining directory entries are read into memory.
+    Closed,
+
+    /// Error on handle creating
+    Error( Option<wd::ErrorInner<E>> ),
+}
+
+impl<E: source::SourceExt> ReadDir<E> {
+    fn new_once( raw_dent: RawDirEntry<E> ) -> Self {
+        Self::Once { 
+            item: raw_dent.into_some(),
+        }
+    }
+
+    fn new( rd: E::FsReadDir ) -> Self {
+        // match rd {
+        //     Ok(rd) => Self::Opened { rd },
+        //     Err(err) => Self::Error( Some(err) ),
+        // }        
+        Self::Opened { 
+            rd 
+        }
+    }
+
+    pub fn collect_all<T>(&mut self, process_rawdent: &impl (Fn(wd::ResultInner<RawDirEntry<E>, E>) -> Option<T>) ) -> Vec<T> {
+        match *self {
+            ReadDir::Opened { ref mut rd } => {
+                let entries = rd.map(Self::fsdent_into_raw).map(process_rawdent).filter_map(|opt| opt).collect();
+                *self = ReadDir::<E>::Closed;
+                entries
+            },
+            ReadDir::Once { ref mut item } => {
+                let entries = match item.take() {
+                    Some(raw_dent) => match process_rawdent(Ok(raw_dent)) {
+                        Some(t) => vec![t],
+                        None => vec![],
+                    },
+                    None => vec![],
+                };
+                *self = ReadDir::<E>::Closed;
+                entries
+            },
+            ReadDir::Closed => {
+                vec![]
+            },
+            ReadDir::Error( ref mut oerr ) => {
+                match oerr.take() {
+                    Some(err) => match process_rawdent(Err(err)) {
+                        Some(e) => vec![e],
+                        None => vec![],
+                    },
+                    None => vec![],
+                }
+            },
+        }
+    }
+
+    fn fsdent_into_raw( r_ent: Result<E::FsDirEntry, E::FsError> ) -> wd::ResultInner<RawDirEntry<E>, E> {
+        match r_ent {
+            Ok(ent) => RawDirEntry::<E>::from_fsentry( ent ),
+            Err(err) => into_io_err(err).into_err(),
+        }
+    }    
+}
+
+impl<E: source::SourceExt> Iterator for ReadDir<E> {
+    type Item = wd::ResultInner<RawDirEntry<E>, E>;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        match *self {
+            ReadDir::Once { ref mut item } => {
+                item.take().map(Ok)
+            },
+            ReadDir::Opened { ref mut rd } => {
+                rd.next().map(Self::fsdent_into_raw)
+            },
+            ReadDir::Closed => {
+                None
+            },
+            ReadDir::Error( ref mut err ) => {
+                err.take().map(Err)
+            },
+        }
+    }
+}

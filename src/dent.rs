@@ -4,6 +4,7 @@ use crate::wd;
 use crate::source;
 //use crate::source::{SourceFsDirEntry, SourceFsFileType, SourceFsMetadata};
 //use crate::error::ErrorInner;
+use crate::rawdent::RawDirEntry;
 use crate::dir::FlatDirEntry;
 
 /// A directory entry.
@@ -33,21 +34,10 @@ use crate::dir::FlatDirEntry;
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
 /// [`DirEntryExt`]: trait.DirEntryExt.html
 pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
-    // /// The path as reported by the [`fs::ReadDir`] iterator (even if it's a
-    // /// symbolic link).
-    // ///
-    // /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
-    // path: E::PathBuf,
-    // /// The file type. Necessary for recursive iteration, so store it.
-    // ty: E::FsFileType,
-
     /// Raw dent
-    raw: E::FsDirEntry,
+    raw: RawDirEntry<E>,
     /// Is normal dir
     is_dir: bool,
-    /// Is set when this entry was created from a symbolic link and the user
-    /// expects the iterator to follow symbolic links.
-    follow_link: bool,
     /// Is loop link
     loop_link: Option<usize>,
     /// The depth at which this entry was generated relative to the root.
@@ -94,7 +84,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::read_link(entry.path())`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
     pub fn path_is_symlink(&self) -> bool {
-        self.raw.is_symlink() || self.follow_link
+        self.raw.is_symlink() || self.raw.follow_link()
     }
 
     /// Return the metadata for the file that this entry points to.
@@ -172,7 +162,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     // }
 
     // pub(crate) fn from_raw(
-    //     raw: E::FsDirEntry,
+    //     raw: RawDirEntry<E>,
     //     is_dir: bool,
     //     follow_link: bool,
     //     loop_link: Option<usize>,
@@ -193,7 +183,6 @@ impl<E: source::SourceExt> DirEntry<E> {
     ) -> Self {
         Self {
             raw: flat.raw,
-            follow_link: flat.follow_link,
             is_dir: flat.is_dir,
             loop_link: flat.loop_link,
             depth,
@@ -203,7 +192,6 @@ impl<E: source::SourceExt> DirEntry<E> {
     pub(crate) fn into_flat(self) -> FlatDirEntry<E> {
         FlatDirEntry::<E> {
             raw: self.raw,
-            follow_link: self.follow_link,
             is_dir: self.is_dir,
             loop_link: self.loop_link,
         }
@@ -227,7 +215,6 @@ impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
         f.debug_struct("DirEntry")
             .field("raw", &self.raw)
             .field("is_dir", &self.is_dir)
-            .field("follow_link", &self.follow_link)
             .field("loop_link", &self.loop_link)
             .field("depth", &self.depth)
             .finish()

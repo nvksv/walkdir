@@ -1,7 +1,14 @@
 use crate::source::{
     SourceExt, SourceFsDirEntry, SourceFsFileType, SourceFsMetadata,
-    SourceFsReadDir, SourcePath, SourcePathBuf,
+    SourceFsReadDir, SourcePath, SourcePathBuf, SourceFsError
 };
+
+use crate::error;
+
+/// Useful stub for nothing
+#[derive(Debug, Clone, Default)]
+pub struct Nil {}
+
 
 impl SourcePath<std::path::PathBuf> for std::path::Path {
     #[inline(always)]
@@ -48,9 +55,10 @@ impl<'s> SourcePathBuf<'s> for std::string::String {
 
 impl<E> SourceFsDirEntry<E> for std::fs::DirEntry
 where
-    E: SourceExt<
+    E: 'static + SourceExt<
         Path = std::path::Path,
         PathBuf = std::path::PathBuf,
+        FsError = std::io::Error,
         FsFileType = std::fs::FileType,
     >,
 {
@@ -60,15 +68,16 @@ where
     }
 
     #[inline(always)]
-    fn file_type(&self) -> std::io::Result<E::FsFileType> {
+    fn file_type(&self) -> Result<E::FsFileType, E::FsError> {
         std::fs::DirEntry::file_type(self)
     }
 }
 
 impl<E> SourceFsReadDir<E> for std::fs::ReadDir where
-    E: SourceExt<
+    E: 'static + SourceExt<
         Path = std::path::Path,
         PathBuf = std::path::PathBuf,
+        FsError = std::io::Error,
         FsDirEntry = std::fs::DirEntry,
         FsFileType = std::fs::FileType,
     >
@@ -99,5 +108,22 @@ where
     #[inline(always)]
     fn file_type(&self) -> E::FsFileType {
         std::fs::Metadata::file_type(self)
+    }
+}
+
+
+
+impl<E> SourceFsError<E> for std::io::Error 
+where
+    E: 'static + SourceExt<FsError = std::io::Error>,
+{
+    #[inline(always)]
+    fn new(kind: std::io::ErrorKind, error: error::Error<E>) -> Self {
+        std::io::Error::new( kind, error )
+    }
+
+    #[inline(always)]
+    fn kind(&self) -> std::io::ErrorKind {
+        self.kind()
     }
 }

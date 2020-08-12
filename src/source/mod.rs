@@ -1,14 +1,16 @@
 /*!
 Source-specific extensions for directory walking
 */
+use crate::error;
+
 mod util;
-mod stub;
+mod standard;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
 mod windows;
 
-pub use stub::Nil;
+pub use util::Nil;
 #[cfg(unix)]
 pub use unix::WalkDirUnixExt;
 #[cfg(windows)]
@@ -27,7 +29,6 @@ pub type DefaultSourceExt = WalkDirWindowsExt;
 use std::cmp::Ord;
 use std::convert::AsRef;
 use std::fmt;
-use std::io;
 use std::marker::Send;
 use std::ops::Deref;
 
@@ -65,7 +66,7 @@ pub trait SourceFsFileType: Clone + Copy + fmt::Debug {
 }
 
 /// Functions for FsMetadata
-pub trait SourceFsMetadata<E: SourceExt> {
+pub trait SourceFsMetadata<E: SourceExt>: fmt::Debug {
     /// Get type of this entry
     fn file_type(&self) -> E::FsFileType;
 }
@@ -74,6 +75,14 @@ pub trait SourceFsMetadata<E: SourceExt> {
 pub trait SourceFsReadDir<E: SourceExt>:
     fmt::Debug + Iterator<Item = Result<E::FsDirEntry, E::FsError>>
 {
+}
+
+/// Functions for FsMetadata
+pub trait SourceFsError<E: SourceExt>: std::error::Error + fmt::Debug {
+    /// Creates a new I/O error from a known kind of error as well as an arbitrary error payload.
+    fn new(kind: std::io::ErrorKind, error: error::Error<E>) -> E::FsError;
+    /// Returns the corresponding ErrorKind for this error.
+    fn kind(&self) -> std::io::ErrorKind;
 }
 
 /// Trait for source-specific extensions
@@ -91,7 +100,7 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     type RawDirEntryExt: fmt::Debug;
 
     /// io::Error
-    type FsError: std::error::Error + fmt::Debug;
+    type FsError: SourceFsError<Self>;
     /// ffi::OsStr
     type FsFileName: ?Sized;
     /// fs::DirEntry
@@ -120,26 +129,48 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     /// Make new builder
     fn builder_new<P: AsRef<Self::Path>>(root: P, ctx: Option<Self::BuilderCtx>) -> Self;
 
-    /// Make new
+    /// Make new ancestor
     fn ancestor_new(dent: &Self::FsDirEntry) -> Result<Self::AncestorExt, Self::FsError>;
 
     /// Make new
     fn iterator_new(self) -> Self::IteratorExt;
 
-    // /// Create FsDirEntry from path
-    // fn fsentry_from_path<P: AsRef<Self::Path>>(
-    //     path: P,
-    //     ctx: Self::IteratorExt,
-    // ) -> io::Result<Self::FsDirEntry>;
-
     /// Create extension from DirEntry
     fn rawdent_from_fsentry(
         ent: &Self::FsDirEntry,
-    ) -> io::Result<Self::RawDirEntryExt>;
+    ) -> Result<Self::RawDirEntryExt, Self::FsError>;
 
     /// Create extension from metadata
-    fn rawdent_from_path( path: &Self::PathBuf, md: &Self::FsMetadata, ctx: &mut Self::IteratorExt ) -> Result<Self::RawDirEntryExt, Self::FsError>;
+    fn rawdent_from_path<P: AsRef<Self::Path>>( 
+        path: P, 
+        follow_link: bool, 
+        md: Self::FsMetadata, 
+        ctx: &mut Self::IteratorExt 
+    ) -> Result<Self::RawDirEntryExt, Self::FsError>;
 
+    /// Get metadata 
+    fn metadata<P: AsRef<Self::Path>>(
+        path: P, 
+        follow_link: bool, 
+        raw_ext: Option<&Self::RawDirEntryExt>,
+        ctx: &mut Self::IteratorExt,
+    ) -> Result<Self::FsMetadata, Self::FsError>;
+
+    /// Get metadata for symlink
+    fn read_dir<P: AsRef<Self::Path>>(
+        path: P,
+        raw_ext: &Self::RawDirEntryExt,
+        ctx: &mut Self::IteratorExt,
+    ) -> Result<Self::FsReadDir, Self::FsError>;
+
+    /// Check if this entry is a directory
+    #[allow(unused_variables)]
+    fn is_dir(dent: &Self::FsDirEntry, raw_ext: &Self::RawDirEntryExt) -> bool {
+        match dent.file_type() {
+            Ok(ty) => ty.is_dir(),
+            Err(_) => false,
+        }
+    }
 
     /// Return the unique handle
     fn get_handle<P: AsRef<Self::Path>>(
@@ -154,33 +185,6 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
         child: &Self::SameFileHandle,
     ) -> Result<bool, Self::FsError> {
         Ok(child == &Self::get_handle(ancestor_path)?)
-    }
-
-    /// Get metadata for symlink
-    fn metadata<P: AsRef<Self::Path>>(path: P)
-        -> Result<Self::FsMetadata, Self::FsError>;
-
-    // /// Get metadata for symlink
-    // fn symlink_metadata<P: AsRef<Self::Path>>(
-    //     path: P,
-    // ) -> io::Result<Self::FsMetadata>;
-
-    // /// Get metadata for symlink
-    // fn symlink_metadata_internal(
-    //     dent: &Self::FsDirEntry,
-    //     raw_dent_ext: &Self::RawDirEntryExt,
-    // ) -> io::Result<Self::FsMetadata>;
-
-    /// Get metadata for symlink
-    fn read_dir<P: AsRef<Self::Path>>(
-        dent: &Self::FsDirEntry,
-        path: P,
-    ) -> Result<Self::FsReadDir, Self::FsError>;
-
-    /// Check if this entry is a directory
-    #[allow(unused_variables)]
-    fn is_dir(dent: &Self::FsDirEntry, raw_dent_ext: &Self::RawDirEntryExt) -> bool {
-        dent.file_type().is_dir()
     }
 
     /// device_num
