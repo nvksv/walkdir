@@ -32,6 +32,8 @@ use std::fmt;
 use std::marker::Send;
 use std::ops::Deref;
 
+use crate::rawdent::RawDirEntry;
+
 /// Functions for SourceExt::Path
 pub trait SourcePath<PathBuf> {
     /// Copy to owned
@@ -98,6 +100,8 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     type AncestorExt: fmt::Debug + Sized;
     /// Extension for RawDirEntry
     type RawDirEntryExt: fmt::Debug;
+    /// Extension for DirEntry
+    type DirEntryExt: fmt::Debug;
 
     /// io::Error
     type FsError: SourceFsError<Self>;
@@ -148,6 +152,12 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
         ctx: &mut Self::IteratorExt 
     ) -> Result<Self::RawDirEntryExt, Self::FsError>;
 
+    fn dent_new( 
+        raw: &RawDirEntry<Self>, 
+        raw_ext: &Self::RawDirEntryExt,
+        ctx: &mut Self::IteratorExt, 
+    ) -> Self::DirEntryExt;
+
     /// Get metadata 
     fn metadata<P: AsRef<Self::Path>>(
         path: P, 
@@ -171,6 +181,13 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
             Err(_) => false,
         }
     }
+
+    /// Get metadata 
+    fn dent_metadata<P: AsRef<Self::Path>>(
+        path: P, 
+        follow_link: bool, 
+        ext: &Self::DirEntryExt,
+    ) -> Result<Self::FsMetadata, Self::FsError>;
 
     /// Return the unique handle
     fn get_handle<P: AsRef<Self::Path>>(

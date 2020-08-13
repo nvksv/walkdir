@@ -11,6 +11,7 @@ impl SourceExt for Nil {
     type IteratorExt = Nil;
     type AncestorExt = Nil;
     type RawDirEntryExt = Nil;
+    type DirEntryExt = Nil;
 
     type FsError = std::io::Error;
     type FsFileName = std::ffi::OsStr;
@@ -39,6 +40,14 @@ impl SourceExt for Nil {
         Self {}
     }
 
+    fn dent_new( 
+        raw: &RawDirEntry<Self>, 
+        raw_ext: &Self::RawDirEntryExt,
+        ctx: &mut Self::IteratorExt, 
+    ) -> Self::DirEntryExt {
+
+    }
+
     /// Create extension from DirEntry
     fn rawdent_from_fsentry(
         ent: &Self::FsDirEntry,
@@ -48,7 +57,7 @@ impl SourceExt for Nil {
 
     /// Create extension from metadata
     fn rawdent_from_path<P: AsRef<Self::Path>>( path: P, follow_link: bool, md: Self::FsMetadata, ctx: &mut Self::IteratorExt ) -> Result<Self::RawDirEntryExt, Self::FsError> {
-        Self::RawDirEntryExt {}
+        (Self::RawDirEntryExt {}).into_ok()
     }
 
     fn metadata<P: AsRef<Self::Path>>(
@@ -71,6 +80,15 @@ impl SourceExt for Nil {
         ctx: &mut Self::IteratorExt,
     ) -> Result<Self::FsReadDir, Self::FsError> {
         fs::read_dir(path.as_ref())
+    }
+
+    /// Get metadata 
+    fn dent_metadata<P: AsRef<Self::Path>>(
+        path: P, 
+        follow_link: bool, 
+        ext: &Self::DirEntryExt,
+    ) -> Result<Self::FsMetadata, Self::FsError> {
+
     }
 
     #[allow(unused_variables)]
