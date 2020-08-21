@@ -3,36 +3,48 @@ use std::result;
 use std::cmp;
 
 use crate::source;
-use crate::wd::{ContentFilter, ContentOrder, FnCmp};
+use crate::wd::{ContentFilter, ContentOrder, Depth, FnCmp, WalkDirIteratorItem};
+use crate::cp::{self, ContentProcessor};
 use crate::source::SourcePath;
 use crate::walk::WalkDirIterator;
 use crate::dir::FlatDirEntry;
-use crate::iter::{WalkDirIteratorItem, WalkDirIter, ClassicIter};
+use crate::iter::WalkDirIter;
+use crate::classic_iter::ClassicIter;
 
 /////////////////////////////////////////////////////////////////////////
 //// WalkDirOptions
 
-pub struct WalkDirOptionsImmut<E: source::SourceExt> {
+pub struct WalkDirOptionsImmut<E> where
+    E: source::SourceExt,
+{
     pub same_file_system: bool,
     pub follow_links: bool,
     pub yield_loop_links: bool,
     pub max_open: usize,
-    pub min_depth: usize,
-    pub max_depth: usize,
+    pub min_depth: Depth,
+    pub max_depth: Depth,
     pub contents_first: bool,
     pub content_filter: ContentFilter,
     pub content_order: ContentOrder,
+    pub yield_before_content_with_content: bool,
     /// Extension part
     #[allow(dead_code)]
     ext: E::OptionsExt,
 }
 
-pub struct WalkDirOptions<E: source::SourceExt> {
+pub struct WalkDirOptions<E, CP> where 
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+{
     pub immut: WalkDirOptionsImmut<E>,
     pub sorter: Option<FnCmp<E>>,
+    pub content_processor: CP,
 }
 
-impl<E: source::SourceExt> Default for WalkDirOptions<E> { 
+impl<E, CP> Default for WalkDirOptions<E, CP> where
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+{ 
     fn default() -> Self {
         Self {
             immut: WalkDirOptionsImmut {
@@ -45,14 +57,19 @@ impl<E: source::SourceExt> Default for WalkDirOptions<E> {
                 contents_first: false,
                 content_filter: ContentFilter::None,
                 content_order: ContentOrder::None,
+                yield_before_content_with_content: false,
                 ext: E::OptionsExt::default(),
             },
             sorter: None,
+            content_processor: CP::default(),
         }
     }
 }
 
-impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
+impl<E, CP> fmt::Debug for WalkDirOptions<E, CP> where
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+{ 
     fn fmt(
         &self,
         f: &mut fmt::Formatter<'_>,
@@ -73,7 +90,9 @@ impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
             .field("contents_first", &self.immut.contents_first)
             .field("content_filter", &self.immut.content_filter)
             .field("content_order", &self.immut.content_order)
+            .field("yield_before_content_with_content", &self.immut.yield_before_content_with_content)
             .field("sorter", &sorter_str)
+            .field("content_processor", &self.content_processor)
             .field("ext", &self.immut.ext)
             .finish()
     }
@@ -160,14 +179,20 @@ impl<E: source::SourceExt> fmt::Debug for WalkDirOptions<E> {
 /// Note that when following symbolic/soft links, loops are detected and an
 /// error is reported.
 #[derive(Debug)]
-pub struct WalkDirBuilder<E: source::SourceExt = source::DefaultSourceExt> {
-    opts: WalkDirOptions<E>,
+pub struct WalkDirBuilder<E = source::DefaultSourceExt, CP = cp::DirEntryContentProcessor> where
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+{
+    opts: WalkDirOptions<E, CP>,
     root: E::PathBuf,
     /// Extension part
     ext: E,
 }
 
-impl<E: source::SourceExt> WalkDirBuilder<E> {
+impl<E, CP> WalkDirBuilder<E, CP> where 
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+{
     /// Create a builder for a recursive directory iterator starting at the
     /// file path `root`. If `root` is a directory, then it is the first item
     /// yielded by the iterator. If `root` is a file, then it is the first
@@ -193,12 +218,12 @@ impl<E: source::SourceExt> WalkDirBuilder<E> {
     }
 
     /// Builds an iterator
-    pub fn build(self) -> WalkDirIterator<E> {
-        WalkDirIterator::<E>::new( self.opts, self.root, self.ext )
+    pub fn build(self) -> WalkDirIterator<E, CP> {
+        WalkDirIterator::<E, CP>::new( self.opts, self.root, self.ext )
     }
 
     /// Into classic iterator
-    pub fn into_classic(self) -> ClassicIter<E, WalkDirIterator<E>> {
+    pub fn into_classic(self) -> ClassicIter<E, CP, WalkDirIterator<E, CP>> {
         self.into_iter().into_classic()
     }
 
@@ -252,7 +277,7 @@ impl<E: source::SourceExt> WalkDirBuilder<E> {
     /// The smallest depth is `0` and always corresponds to the path given
     /// to the `new` function on this type. Its direct descendents have depth
     /// `1`, and their descendents have depth `2`, and so on.
-    pub fn min_depth(mut self, depth: usize) -> Self {
+    pub fn min_depth(mut self, depth: Depth) -> Self {
         self.opts.immut.min_depth = depth;
         if self.opts.immut.min_depth > self.opts.immut.max_depth {
             self.opts.immut.min_depth = self.opts.immut.max_depth;
@@ -269,7 +294,7 @@ impl<E: source::SourceExt> WalkDirBuilder<E> {
     /// Note that this will not simply filter the entries of the iterator, but
     /// it will actually avoid descending into directories when the depth is
     /// exceeded.
-    pub fn max_depth(mut self, depth: usize) -> Self {
+    pub fn max_depth(mut self, depth: Depth) -> Self {
         self.opts.immut.max_depth = depth;
         if self.opts.immut.max_depth < self.opts.immut.min_depth {
             self.opts.immut.max_depth = self.opts.immut.min_depth;
@@ -325,7 +350,7 @@ impl<E: source::SourceExt> WalkDirBuilder<E> {
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
     where
-        F: FnMut(&FlatDirEntry<E>, &FlatDirEntry<E>) -> cmp::Ordering
+        F: FnMut(&E::FsDirEntry, &E::FsDirEntry) -> cmp::Ordering
             + Send
             + Sync
             + 'static,
@@ -408,6 +433,17 @@ impl<E: source::SourceExt> WalkDirBuilder<E> {
         self
     }
 
+    /// Set content processor
+    pub fn content_processor(mut self, content_processor: CP) -> Self {
+        self.opts.content_processor = content_processor;
+        self
+    }
+
+    /// Set yield_before_content_with_content flag 
+    pub fn yield_before_content_with_content(mut self, yield_before_content_with_content: bool) -> Self {
+        self.opts.immut.yield_before_content_with_content = yield_before_content_with_content;
+        self
+    }
 }
 
 
@@ -417,9 +453,12 @@ impl<E: source::SourceExt> WalkDirBuilder<E> {
 /////////////////////////////////////////////////////////////////////////
 //// IntoIterator
 
-impl<E: source::SourceExt> IntoIterator for WalkDirBuilder<E> {
-    type Item = WalkDirIteratorItem<E>;
-    type IntoIter = WalkDirIterator<E>;
+impl<E, CP> IntoIterator for WalkDirBuilder<E, CP> where
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+{
+    type Item = WalkDirIteratorItem<E, CP>;
+    type IntoIter = WalkDirIterator<E, CP>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.build()

@@ -20,7 +20,7 @@ use std::result;
 use std::time::Instant;
 
 use bstr::BString;
-use walkdir::WalkDir;
+use walkdir::{WalkDir, Depth};
 
 type Result<T> = result::Result<T, Box<dyn Error>>;
 
@@ -156,8 +156,8 @@ where
 struct Args {
     dirs: Vec<PathBuf>,
     follow_links: bool,
-    min_depth: Option<usize>,
-    max_depth: Option<usize>,
+    min_depth: Option<Depth>,
+    max_depth: Option<Depth>,
     max_open: Option<usize>,
     tree: bool,
     ignore_errors: bool,

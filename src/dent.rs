@@ -1,11 +1,11 @@
 use std::fmt;
 
-use crate::wd;
+use crate::wd::{self, Depth};
 use crate::source;
 use crate::source::{SourceFsDirEntry, SourceFsFileType};
 use crate::error::{Error, into_io_err};
 // use crate::rawdent::RawDirEntry;
-// use crate::dir::FlatDirEntry;
+use crate::dir::FlatDirEntry;
 
 /// A directory entry.
 ///
@@ -43,7 +43,7 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// Follow link
     follow_link: bool,
     /// The depth at which this entry was generated relative to the root.
-    depth: usize,
+    depth: Depth,
     /// Extension part
     ext: E::DirEntryExt,
 }
@@ -152,7 +152,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// The smallest depth is `0` and always corresponds to the path given
     /// to the `new` function on `WalkDir`. Its direct descendents have depth
     /// `1`, and their descendents have depth `2`, and so on.
-    pub fn depth(&self) -> usize {
+    pub fn depth(&self) -> Depth {
         self.depth
     }
 
@@ -162,7 +162,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     }
 
     // /// Returns true if and only if this entry points to a directory.
-    // pub(crate) fn loop_link(&self) -> Option<usize> {
+    // pub(crate) fn loop_link(&self) -> Option<Depth> {
     //     self.loop_link
     // }
 
@@ -170,8 +170,8 @@ impl<E: source::SourceExt> DirEntry<E> {
     //     raw: RawDirEntry<E>,
     //     is_dir: bool,
     //     follow_link: bool,
-    //     loop_link: Option<usize>,
-    //     depth: usize,
+    //     loop_link: Option<Depth>,
+    //     depth: Depth,
     // ) -> Self {
     //     Self {
     //         raw,
@@ -182,17 +182,22 @@ impl<E: source::SourceExt> DirEntry<E> {
     //     }
     // }
 
-//     pub(crate) fn from_flat(
-//         flat: FlatDirEntry<E>,
-//         depth: usize,
-//     ) -> Self {
-//         Self {
-//             raw: flat.raw,
-//             is_dir: flat.is_dir,
-//             loop_link: flat.loop_link,
-//             depth,
-//         }
-//     }
+    pub(crate) fn from_flat(
+        flat: &FlatDirEntry<E>,
+        depth: Depth,
+        ctx: &mut E::IteratorExt,
+    ) -> Self {
+        let (path, ty, follow_link, ext) = flat.raw.clone_dent_parts(ctx);
+
+        Self {
+            path,
+            is_dir: flat.is_dir,
+            ty,
+            follow_link,
+            depth,
+            ext,
+        }
+    }
 
 //     pub(crate) fn into_flat(self) -> FlatDirEntry<E> {
 //         FlatDirEntry::<E> {
@@ -218,10 +223,12 @@ impl<E: source::SourceExt> DirEntry<E> {
 impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DirEntry")
-            .field("raw", &self.raw)
+            .field("path", &self.path)
             .field("is_dir", &self.is_dir)
-            .field("loop_link", &self.loop_link)
+            .field("ty", &self.ty)
+            .field("follow_link", &self.follow_link)
             .field("depth", &self.depth)
+            .field("ext", &self.ext)
             .finish()
     }
 }

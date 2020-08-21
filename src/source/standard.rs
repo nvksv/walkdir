@@ -31,7 +31,11 @@ impl SourceExt for Nil {
     }
 
     #[allow(unused_variables)]
-    fn ancestor_new(dent: &Self::FsDirEntry) -> Result<Self::AncestorExt, Self::FsError> {
+    fn ancestor_new<P: AsRef<Self::Path>>(
+        path: P, 
+        dent: Option<&Self::FsDirEntry>, 
+        raw_ext: &Self::RawDirEntryExt,
+    ) -> Result<Self::AncestorExt, Self::FsError> {
         (Self::AncestorExt {}).into_ok()
     }
 
@@ -40,12 +44,12 @@ impl SourceExt for Nil {
         Self {}
     }
 
-    fn dent_new( 
-        raw: &RawDirEntry<Self>, 
+    fn dent_new<P: AsRef<Self::Path>>( 
+        path: P, 
         raw_ext: &Self::RawDirEntryExt,
         ctx: &mut Self::IteratorExt, 
     ) -> Self::DirEntryExt {
-
+        Self::DirEntryExt {}
     }
 
     /// Create extension from DirEntry
@@ -88,7 +92,11 @@ impl SourceExt for Nil {
         follow_link: bool, 
         ext: &Self::DirEntryExt,
     ) -> Result<Self::FsMetadata, Self::FsError> {
-
+        if follow_link {
+            fs::metadata(path)
+        } else {
+            fs::symlink_metadata(path)
+        }
     }
 
     #[allow(unused_variables)]
@@ -116,7 +124,7 @@ impl SourceExt for Nil {
         ))
     }
 
-    fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName {
+    fn get_file_name(path: &Self::Path) -> &Self::FsFileName {
         path.file_name().unwrap_or_else(|| path.as_os_str())
     }
 }

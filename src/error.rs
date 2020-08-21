@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::source;
 use crate::source::{SourcePath, SourcePathBuf, SourceFsError, SourceFsDirEntry};
+use crate::wd::Depth;
 
 
 /// An error produced by recursively walking a directory.
@@ -26,7 +27,7 @@ use crate::source::{SourcePath, SourcePathBuf, SourceFsError, SourceFsDirEntry};
 #[derive(Debug)]
 pub struct Error<E: source::SourceExt = source::DefaultSourceExt> {
     inner: ErrorInner<E>,
-    depth: usize,
+    depth: Depth,
 }
 
 #[derive(Debug)]
@@ -38,7 +39,7 @@ pub enum ErrorInner<E: source::SourceExt> {
     Loop { 
         ancestor: E::PathBuf, 
         child: E::PathBuf 
-    },
+    }
 }
 
 impl<E: source::SourceExt> ErrorInner<E> {
@@ -211,7 +212,7 @@ impl<E: source::SourceExt> Error<E> {
     ///
     /// [`new`]: struct.WalkDir.html#method.new
     /// [`WalkDir`]: struct.WalkDir.html
-    pub fn depth(&self) -> usize {
+    pub fn depth(&self) -> Depth {
         self.depth
     }
 
@@ -294,7 +295,7 @@ impl<E: source::SourceExt> Error<E> {
 
     pub(crate) fn from_inner(
         inner: ErrorInner<E>,
-        depth: usize,
+        depth: Depth,
     ) -> Self {
         Self {
             inner,

@@ -1,7 +1,9 @@
 use crate::source;
 use crate::error;
 
-pub use error::{Error, ErrorInner};
+pub use crate::error::{Error, ErrorInner};
+pub use crate::dent::DirEntry;
+use crate::cp::ContentProcessor;
 
 
 pub trait IntoSome<T> {
@@ -33,6 +35,8 @@ impl<T, E> IntoErr<T, E> for E {
         Err(self)
     }
 }
+
+pub type Depth = usize;
 
 /// A result type for walkdir operations.
 ///
@@ -106,4 +110,8 @@ pub enum Position<BC, EN, ER> {
     /// After content of current dir
     AfterContent,
 }
+
+/// Type of item for Iterators
+pub type WalkDirIteratorItem<E, CP: ContentProcessor<E>> = Position<(CP::Item, CP::Collection), CP::Item, Error<E>>;
+
 

@@ -32,8 +32,6 @@ use std::fmt;
 use std::marker::Send;
 use std::ops::Deref;
 
-use crate::rawdent::RawDirEntry;
-
 /// Functions for SourceExt::Path
 pub trait SourcePath<PathBuf> {
     /// Copy to owned
@@ -80,7 +78,7 @@ pub trait SourceFsReadDir<E: SourceExt>:
 }
 
 /// Functions for FsMetadata
-pub trait SourceFsError<E: SourceExt>: std::error::Error + fmt::Debug {
+pub trait SourceFsError<E: SourceExt>: 'static + std::error::Error + fmt::Debug {
     /// Creates a new I/O error from a known kind of error as well as an arbitrary error payload.
     fn new(kind: std::io::ErrorKind, error: error::Error<E>) -> E::FsError;
     /// Returns the corresponding ErrorKind for this error.
@@ -134,7 +132,11 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     fn builder_new<P: AsRef<Self::Path>>(root: P, ctx: Option<Self::BuilderCtx>) -> Self;
 
     /// Make new ancestor
-    fn ancestor_new(dent: &Self::FsDirEntry) -> Result<Self::AncestorExt, Self::FsError>;
+    fn ancestor_new<P: AsRef<Self::Path>>(
+        path: P,
+        dent: Option<&Self::FsDirEntry>, 
+        raw_ext: &Self::RawDirEntryExt,
+    ) -> Result<Self::AncestorExt, Self::FsError>;
 
     /// Make new
     fn iterator_new(self) -> Self::IteratorExt;
@@ -152,8 +154,8 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
         ctx: &mut Self::IteratorExt 
     ) -> Result<Self::RawDirEntryExt, Self::FsError>;
 
-    fn dent_new( 
-        raw: &RawDirEntry<Self>, 
+    fn dent_new<P: AsRef<Self::Path>>( 
+        path: P, 
         raw_ext: &Self::RawDirEntryExt,
         ctx: &mut Self::IteratorExt, 
     ) -> Self::DirEntryExt;
@@ -208,5 +210,5 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     fn device_num<P: AsRef<Self::Path>>(path: P) -> Result<u64, Self::FsError>;
 
     /// file_name
-    fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName;
+    fn get_file_name(path: &Self::Path) -> &Self::FsFileName;
 }

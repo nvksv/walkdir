@@ -111,11 +111,13 @@ doc_comment::doctest!("../README.md");
 
 mod wd;
 mod rawdent;
-mod dent;
 mod dir;
 mod opts;
-mod walk;
 mod iter;
+mod classic_iter;
+mod walk;
+mod cp;
+mod dent;
 mod error;
 pub mod source;
 #[cfg(test)]
@@ -128,8 +130,9 @@ pub use crate::dent::DirEntryExt;
 
 pub use crate::opts::WalkDirBuilder;
 pub use crate::walk::WalkDirIterator;
-pub use crate::iter::{FilterEntry, WalkDirIter, ClassicWalkDirIter, WalkDirIteratorItem};
-pub use crate::wd::{Position, ContentFilter, ContentOrder};
+pub use crate::iter::{FilterEntry, WalkDirIter};
+pub use crate::classic_iter::{ClassicWalkDirIter};
+pub use crate::wd::{Depth, Position, ContentFilter, ContentOrder, WalkDirIteratorItem};
 pub use crate::source::{SourcePath, SourcePathBuf};
 
 /// Default (classic) WalkDir

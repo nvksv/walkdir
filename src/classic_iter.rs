@@ -1,18 +1,14 @@
-use crate::wd::{self, Error, Position, WalkDirIteratorItem};
-//use crate::rawdent::RawDirEntry;
-use crate::dent::DirEntry;
-#[cfg(unix)]
-use crate::dent::DirEntryExt;
 use crate::source;
-use crate::walk::WalkDirIterator;
+use crate::wd::{self, WalkDirIteratorItem, Position};
+use crate::dent::DirEntry;
 use crate::cp::ContentProcessor;
-use crate::classic_iter::ClassicIter;
+use crate::iter::WalkDirIter;
 
 /////////////////////////////////////////////////////////////////////////
-//// WalkDirIter
+//// ClassicWalkDirIter
 
-/// WalkDirIter
-pub trait WalkDirIter<E, CP>: Sized + Iterator<Item = WalkDirIteratorItem<E, CP>> where 
+/// Classic iterator
+pub trait ClassicWalkDirIter<E, CP>: Sized + Iterator<Item = wd::Result<CP::Item, E>> where
     E: source::SourceExt,
     CP: ContentProcessor<E>,
 {
@@ -63,41 +59,73 @@ pub trait WalkDirIter<E, CP>: Sized + Iterator<Item = WalkDirIteratorItem<E, CP>
     /// [`skip_current_dir`]: #method.skip_current_dir
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    fn filter_entry<P>(self, predicate: P) -> FilterEntry<E, CP, Self, P>
+    fn filter_entry<P>(self, predicate: P) -> ClassicFilterEntry<E, CP, Self, P>
     where
         P: FnMut(&CP::Item) -> bool,
     {
-        FilterEntry { 
+        ClassicFilterEntry { 
             inner: self, 
             predicate: predicate,
             _cp: std::marker::PhantomData,
         }
     }
 
-    /// WalkDirIter
+    /// Skip all remaining content of current dir
     fn skip_current_dir(&mut self);
+}
 
-    /// WalkDirIter
-    fn into_classic(self) -> ClassicIter<E, CP, Self> {
-        ClassicIter {
-            inner: self,
-            _cp: std::marker::PhantomData,
+
+
+
+/////////////////////////////////////////////////////////////////////////
+//// ClassicIntoIter
+
+pub struct ClassicIter<E, CP, I> 
+where 
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+    I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
+{
+    inner: I,
+    _cp: std::marker::PhantomData<CP>,
+}
+
+impl<E, CP, I> Iterator for ClassicIter<E, CP, I>
+where 
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+    I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
+{
+    type Item = wd::Result<CP::Item, E>;
+
+    /// Advances the iterator and returns the next value.
+    ///
+    /// # Errors
+    ///
+    /// If the iterator fails to retrieve the next value, this method returns
+    /// an error value. The error will be wrapped in an `Option::Some`.
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.inner.next() {
+                Some(Position::Entry(dent)) => return Some(Ok(dent)),
+                Some(Position::Error(err)) => return Some(Err(err)),
+                Some(_) => continue,
+                None => return None,
+            }
         }
     }
 }
 
-impl<E, CP> WalkDirIter<E, CP> for WalkDirIterator<E, CP> where
+impl<E, CP, I> ClassicWalkDirIter<E, CP> for ClassicIter<E, CP, I>
+where 
     E: source::SourceExt,
     CP: ContentProcessor<E>,
+    I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
 {
     fn skip_current_dir(&mut self) {
-        WalkDirIterator::<E, CP>::skip_current_dir(self);
+        self.inner.skip_current_dir();
     }
 }
-
-
-
-
 
 
 
@@ -127,11 +155,11 @@ impl<E, CP> WalkDirIter<E, CP> for WalkDirIterator<E, CP> where
 /// [`min_depth`]: struct.WalkDir.html#method.min_depth
 /// [`max_depth`]: struct.WalkDir.html#method.max_depth
 #[derive(Debug)]
-pub struct FilterEntry<E, CP, I, P> 
+pub struct ClassicFilterEntry<E, CP, I, P> 
 where
     E: source::SourceExt,
     CP: ContentProcessor<E>,
-    I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
+    I: Iterator<Item = wd::Result<CP::Item, E>> + ClassicWalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
 {
     inner: I,
@@ -139,14 +167,14 @@ where
     _cp: std::marker::PhantomData<CP>,
 }
 
-impl<E, CP, I, P> Iterator for FilterEntry<E, CP, I, P>
+impl<E, CP, I, P> Iterator for ClassicFilterEntry<E, CP, I, P>
 where
     E: source::SourceExt,
     CP: ContentProcessor<E>,
-    I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
+    I: Iterator<Item = wd::Result<CP::Item, E>> + ClassicWalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
 {
-    type Item = WalkDirIteratorItem<E, CP>;
+    type Item = wd::Result<CP::Item, E>;
 
     /// Advances the iterator and returns the next value.
     ///
@@ -161,25 +189,28 @@ where
                 None => return None,
             };
 
-            if let Position::Entry(ref dent) = item {
-                if !(self.predicate)(dent) {
-                    if CP::is_dir(dent) {
-                        self.inner.skip_current_dir();
+            match item {
+                Ok(dent) => {
+                    if !(self.predicate)(&dent) {
+                        if CP::is_dir(&dent) {
+                            self.inner.skip_current_dir();
+                        }
+                        continue;
                     }
-                    continue
-                }
+                    return Some(Ok(dent));
+                },
+                Err(err) => return Some(Err(err)),
             }
 
-            return Some(item);
         }
     }
 }
 
-impl<E, CP, I, P> FilterEntry<E, CP, I, P>
+impl<E, CP, I, P> ClassicFilterEntry<E, CP, I, P>
 where
     E: source::SourceExt,
     CP: ContentProcessor<E>,
-    I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
+    I: Iterator<Item = wd::Result<CP::Item, E>> + ClassicWalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
 {
     /// Yields only entries which satisfy the given predicate and skips
@@ -228,8 +259,8 @@ where
     /// [`skip_current_dir`]: #method.skip_current_dir
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    pub fn filter_entry(self, predicate: P) -> FilterEntry<E, CP, Self, P> {
-        FilterEntry { 
+    pub fn filter_entry(self, predicate: P) -> ClassicFilterEntry<E, CP, Self, P> {
+        ClassicFilterEntry::<E, CP, _, _> { 
             inner: self, 
             predicate: predicate,
             _cp: std::marker::PhantomData,
@@ -284,18 +315,14 @@ where
     }
 }
 
-impl<E, CP, I, P> WalkDirIter<E, CP> for FilterEntry<E, CP, I, P>
-    where
-        E: source::SourceExt,
-        CP: ContentProcessor<E>,
-        I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
-        P: FnMut(&CP::Item) -> bool,
+impl<E, CP, I, P> ClassicWalkDirIter<E, CP> for ClassicFilterEntry<E, CP, I, P>
+where
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+    I: Iterator<Item = wd::Result<CP::Item, E>> + ClassicWalkDirIter<E, CP>,
+    P: FnMut(&CP::Item) -> bool,
 {
     fn skip_current_dir(&mut self) {
         self.inner.skip_current_dir();
     }
 }
-
-
-
-

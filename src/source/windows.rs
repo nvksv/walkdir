@@ -39,6 +39,7 @@ impl SourceExt for WalkDirWindowsExt {
     type IteratorExt = Nil;
     type AncestorExt = AncestorWindowsExt;
     type RawDirEntryExt = DirEntryWindowsExt;
+    type DirEntryExt = DirEntryWindowsExt;
 
     type FsError = std::io::Error;
     type FsFileName = std::ffi::OsStr;
@@ -58,8 +59,12 @@ impl SourceExt for WalkDirWindowsExt {
     }
 
     #[allow(unused_variables)]
-    fn ancestor_new(dent: &Self::FsDirEntry) -> Result<Self::AncestorExt, Self::FsError> {
-        let handle = same_file::Handle::from_path(dent.path())?;
+    fn ancestor_new<P: AsRef<Self::Path>>(
+        path: P,
+        dent: Option<&Self::FsDirEntry>, 
+        raw_ext: &Self::RawDirEntryExt,
+    ) -> Result<Self::AncestorExt, Self::FsError> {
+        let handle = same_file::Handle::from_path(path)?;
         (Self::AncestorExt { handle }).into_ok()
     }
 
@@ -68,16 +73,31 @@ impl SourceExt for WalkDirWindowsExt {
         Self::IteratorExt {}
     }
 
+    fn dent_new<P: AsRef<Self::Path>>( 
+        path: P, 
+        raw_ext: &Self::RawDirEntryExt,
+        ctx: &mut Self::IteratorExt, 
+    ) -> Self::DirEntryExt {
+        raw_ext.clone()
+    }
+
     /// Create extension from DirEntry
     fn rawdent_from_fsentry(
         ent: &Self::FsDirEntry,
     ) -> Result<Self::RawDirEntryExt, Self::FsError> {
-        (Self::RawDirEntryExt { metadata: ent.metadata()? }).into_ok()
+        Self::RawDirEntryExt { metadata: ent.metadata()? }
+            .into_ok()
     }
 
     /// Create extension from metadata
-    fn rawdent_from_path<P: AsRef<Self::Path>>( path: P, follow_link: bool, md: Self::FsMetadata, ctx: &mut Self::IteratorExt ) -> Result<Self::RawDirEntryExt, Self::FsError> {
+    fn rawdent_from_path<P: AsRef<Self::Path>>( 
+        path: P, 
+        follow_link: bool, 
+        md: Self::FsMetadata, 
+        ctx: &mut Self::IteratorExt 
+    ) -> Result<Self::RawDirEntryExt, Self::FsError> {
         Self::RawDirEntryExt { metadata: md }
+            .into_ok()
     }
 
     fn metadata<P: AsRef<Self::Path>>(
@@ -104,6 +124,18 @@ impl SourceExt for WalkDirWindowsExt {
         ctx: &mut Self::IteratorExt,
     ) -> Result<Self::FsReadDir, Self::FsError> {
         fs::read_dir(path.as_ref())
+    }
+
+    fn dent_metadata<P: AsRef<Self::Path>>(
+        path: P, 
+        follow_link: bool, 
+        ext: &Self::DirEntryExt,
+    ) -> Result<Self::FsMetadata, Self::FsError> {
+        if follow_link {
+            fs::metadata(path)
+        } else {
+            fs::symlink_metadata(path)
+        }
     }
 
     /// This works around a bug in Rust's standard library:
@@ -139,7 +171,7 @@ impl SourceExt for WalkDirWindowsExt {
         file::information(h).map(|info| info.volume_serial_number())
     }
 
-    fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName {
+    fn get_file_name(path: &Self::Path) -> &Self::FsFileName {
         path.file_name().unwrap_or_else(|| path.as_os_str())
     }
 }
