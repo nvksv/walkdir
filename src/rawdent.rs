@@ -1,4 +1,3 @@
-use std::fmt;
 
 use crate::wd::{self, FnCmp, IntoSome, IntoErr, IntoOk};
 use crate::source;
@@ -117,11 +116,18 @@ impl<E: source::SourceExt> RawDirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    fn metadata(
+    pub fn metadata(
         &self, 
         ctx: &mut E::IteratorExt,
     ) -> wd::ResultInner<E::FsMetadata, E> {
         E::metadata(self.path(), self.follow_link, Some(&self.ext), ctx).map_err(into_io_err)
+    }
+
+    pub(crate) fn metadata_follow(
+        &self, 
+        ctx: &mut E::IteratorExt,
+    ) -> wd::ResultInner<E::FsMetadata, E> {
+        E::metadata(self.path(), true, None, ctx).map_err(into_io_err)
     }
 
     // fn metadata_internal(&self, follow_link: bool) -> wd::ResultInner<E::FsMetadata, E> {
@@ -193,13 +199,13 @@ impl<E: source::SourceExt> RawDirEntry<E> {
         }.into_ok()
     }
 
-    fn from_path_internal<P: AsRef<E::Path>>(
+    fn from_path_internal<P: AsRef<E::Path> + Copy>(
         path: P,
         ctx: &mut E::IteratorExt,
         follow_link: bool,
     ) -> wd::ResultInner<Self, E> {
 
-        let md  = E::metadata(path, follow_link, None, ctx).map_err(into_io_err)?;
+        let md  = E::metadata(path, follow_link, None, ctx).map_err(|e| into_path_err(path, e))?;
         let ty  = md.file_type().clone();
         let ext = E::rawdent_from_path( path, follow_link, md, ctx ).map_err(|err| into_path_err(path, err))?;
         let pb  = path.as_ref().to_path_buf();
@@ -213,7 +219,7 @@ impl<E: source::SourceExt> RawDirEntry<E> {
 
     }
 
-    pub fn from_path<P: AsRef<E::Path>>(
+    pub fn from_path<P: AsRef<E::Path> + Copy>(
         path: P,
         ctx: &mut E::IteratorExt,
     ) -> wd::ResultInner<ReadDir<E>, E> {
@@ -243,11 +249,11 @@ impl<E: source::SourceExt> RawDirEntry<E> {
 
     pub fn call_cmp(a: &Self, b: &Self, cmp: &mut FnCmp<E>) -> std::cmp::Ordering {
         let fs_a = a.get_fs_dir_entry().unwrap();
-        let fs_b = a.get_fs_dir_entry().unwrap();
+        let fs_b = b.get_fs_dir_entry().unwrap();
         cmp(fs_a, fs_b)
     }
 
-    pub fn clone_dent_parts(self, ctx: &mut E::IteratorExt) -> (E::PathBuf, E::FsFileType, bool, E::DirEntryExt) {
+    pub fn clone_dent_parts(&self, ctx: &mut E::IteratorExt) -> (E::PathBuf, E::FsFileType, bool, E::DirEntryExt) {
         let path     = self.path().to_path_buf();
         let dent_ext = E::dent_new(&path, &self.ext, ctx);
 
@@ -357,7 +363,7 @@ impl<E: source::SourceExt> ReadDir<E> {
         }
     }
 
-    pub fn collect_all<T>(&mut self, process_rawdent: &impl (Fn(wd::ResultInner<RawDirEntry<E>, E>) -> Option<T>) ) -> Vec<T> {
+    pub fn collect_all<T>(&mut self, process_rawdent: &mut impl (FnMut(wd::ResultInner<RawDirEntry<E>, E>) -> Option<T>) ) -> Vec<T> {
         match *self {
             ReadDir::Opened { ref mut rd } => {
                 let entries = rd.map(Self::fsdent_into_raw).map(process_rawdent).filter_map(|opt| opt).collect();

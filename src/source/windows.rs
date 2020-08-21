@@ -73,6 +73,7 @@ impl SourceExt for WalkDirWindowsExt {
         Self::IteratorExt {}
     }
 
+    #[allow(unused_variables)]
     fn dent_new<P: AsRef<Self::Path>>( 
         path: P, 
         raw_ext: &Self::RawDirEntryExt,
@@ -90,6 +91,7 @@ impl SourceExt for WalkDirWindowsExt {
     }
 
     /// Create extension from metadata
+    #[allow(unused_variables)]
     fn rawdent_from_path<P: AsRef<Self::Path>>( 
         path: P, 
         follow_link: bool, 
@@ -100,6 +102,7 @@ impl SourceExt for WalkDirWindowsExt {
             .into_ok()
     }
 
+    #[allow(unused_variables)]
     fn metadata<P: AsRef<Self::Path>>(
         path: P, 
         follow_link: bool, 
@@ -126,6 +129,7 @@ impl SourceExt for WalkDirWindowsExt {
         fs::read_dir(path.as_ref())
     }
 
+    #[allow(unused_variables)]
     fn dent_metadata<P: AsRef<Self::Path>>(
         path: P, 
         follow_link: bool, 

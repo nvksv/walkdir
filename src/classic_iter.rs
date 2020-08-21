@@ -1,6 +1,5 @@
 use crate::source;
 use crate::wd::{self, WalkDirIteratorItem, Position};
-use crate::dent::DirEntry;
 use crate::cp::ContentProcessor;
 use crate::iter::WalkDirIter;
 
@@ -88,6 +87,20 @@ where
 {
     inner: I,
     _cp: std::marker::PhantomData<CP>,
+}
+
+impl<E, CP, I> ClassicIter<E, CP, I>
+where 
+    E: source::SourceExt,
+    CP: ContentProcessor<E>,
+    I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
+{
+    pub(crate) fn new(inner: I) -> Self {
+        Self {
+            inner, 
+            _cp: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<E, CP, I> Iterator for ClassicIter<E, CP, I>

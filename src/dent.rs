@@ -1,8 +1,6 @@
-use std::fmt;
-
 use crate::wd::{self, Depth};
 use crate::source;
-use crate::source::{SourceFsDirEntry, SourceFsFileType};
+use crate::source::{SourceFsFileType};
 use crate::error::{Error, into_io_err};
 // use crate::rawdent::RawDirEntry;
 use crate::dir::FlatDirEntry;
@@ -33,6 +31,7 @@ use crate::dir::FlatDirEntry;
 /// [`file_name`]: #method.file_name
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
 /// [`DirEntryExt`]: trait.DirEntryExt.html
+#[derive(Debug, Clone)]
 pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     /// Raw dent
     path: E::PathBuf,
@@ -208,30 +207,18 @@ impl<E: source::SourceExt> DirEntry<E> {
 //     }
 }
 
-// impl<E: source::SourceExt> Clone for DirEntry<E> {
-//     fn clone(&self) -> Self {
-//         Self {
-//             raw: self.raw.clone(),
-//             is_dir: self.is_dir,
-//             follow_link: self.follow_link,
-//             loop_link: self.loop_link.clone(),
-//             depth: self.depth,
-//         }
+// impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         f.debug_struct("DirEntry")
+//             .field("path", &self.path)
+//             .field("is_dir", &self.is_dir)
+//             .field("ty", &self.ty)
+//             .field("follow_link", &self.follow_link)
+//             .field("depth", &self.depth)
+//             .field("ext", &self.ext)
+//             .finish()
 //     }
 // }
-
-impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DirEntry")
-            .field("path", &self.path)
-            .field("is_dir", &self.is_dir)
-            .field("ty", &self.ty)
-            .field("follow_link", &self.follow_link)
-            .field("depth", &self.depth)
-            .field("ext", &self.ext)
-            .finish()
-    }
-}
 
 /// Unix-specific extension methods for `walkdir::DirEntry`
 #[cfg(unix)]

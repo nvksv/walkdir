@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::source;
-use crate::source::{SourcePath, SourcePathBuf, SourceFsError, SourceFsDirEntry};
+use crate::source::{SourcePath, SourcePathBuf, SourceFsDirEntry};
 use crate::wd::Depth;
 
 

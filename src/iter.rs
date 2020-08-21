@@ -1,8 +1,4 @@
-use crate::wd::{self, Error, Position, WalkDirIteratorItem};
-//use crate::rawdent::RawDirEntry;
-use crate::dent::DirEntry;
-#[cfg(unix)]
-use crate::dent::DirEntryExt;
+use crate::wd::{Position, WalkDirIteratorItem};
 use crate::source;
 use crate::walk::WalkDirIterator;
 use crate::cp::ContentProcessor;
@@ -79,10 +75,7 @@ pub trait WalkDirIter<E, CP>: Sized + Iterator<Item = WalkDirIteratorItem<E, CP>
 
     /// WalkDirIter
     fn into_classic(self) -> ClassicIter<E, CP, Self> {
-        ClassicIter {
-            inner: self,
-            _cp: std::marker::PhantomData,
-        }
+        ClassicIter::<E, CP, Self>::new(self)
     }
 }
 

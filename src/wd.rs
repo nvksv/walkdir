@@ -1,5 +1,4 @@
 use crate::source;
-use crate::error;
 
 pub use crate::error::{Error, ErrorInner};
 pub use crate::dent::DirEntry;
@@ -36,6 +35,7 @@ impl<T, E> IntoErr<T, E> for E {
     }
 }
 
+/// Type of depth
 pub type Depth = usize;
 
 /// A result type for walkdir operations.
@@ -54,8 +54,8 @@ pub type Result<T, E = source::DefaultSourceExt> = ::std::result::Result<T, self
 pub type ResultInner<T, E = source::DefaultSourceExt> = ::std::result::Result<T, self::ErrorInner<E>>;
 
 /// A DirEntry sorter function.
-pub type FnCmp<E: source::SourceExt> = Box<
-    dyn FnMut(&E::FsDirEntry, &E::FsDirEntry) -> std::cmp::Ordering
+pub type FnCmp<E> = Box<
+    dyn FnMut(&<E as source::SourceExt>::FsDirEntry, &<E as source::SourceExt>::FsDirEntry) -> std::cmp::Ordering
         + Send
         + Sync
         + 'static,
@@ -112,6 +112,6 @@ pub enum Position<BC, EN, ER> {
 }
 
 /// Type of item for Iterators
-pub type WalkDirIteratorItem<E, CP: ContentProcessor<E>> = Position<(CP::Item, CP::Collection), CP::Item, Error<E>>;
+pub type WalkDirIteratorItem<E, CP> = Position<(<CP as ContentProcessor<E>>::Item, <CP as ContentProcessor<E>>::Collection), <CP as ContentProcessor<E>>::Item, Error<E>>;
 
 

@@ -7,7 +7,6 @@ use crate::wd::{ContentFilter, ContentOrder, Depth, FnCmp, WalkDirIteratorItem};
 use crate::cp::{self, ContentProcessor};
 use crate::source::SourcePath;
 use crate::walk::WalkDirIterator;
-use crate::dir::FlatDirEntry;
 use crate::iter::WalkDirIter;
 use crate::classic_iter::ClassicIter;
 
@@ -346,7 +345,7 @@ impl<E, CP> WalkDirBuilder<E, CP> where
     /// use std::ffi::OsString;
     /// use walkdir::WalkDir;
     ///
-    /// WalkDir::new("foo").sort_by(|a,b| a.raw.file_name().cmp(b.raw.file_name())).into_classic();
+    /// WalkDir::new("foo").sort_by(|a,b| a.file_name().cmp(&b.file_name())).into_classic();
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
     where

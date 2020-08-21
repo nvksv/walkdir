@@ -4,9 +4,6 @@ use std::vec;
 
 use crate::wd::{self, ContentFilter, ContentOrder, Depth, Position, FnCmp, IntoOk};
 use crate::rawdent::{RawDirEntry, ReadDir};
-use crate::dent::DirEntry;
-#[cfg(unix)]
-use crate::dent::DirEntryExt;
 use crate::source;
 //use crate::source::{SourceFsFileType, SourceFsMetadata, SourcePath};
 use crate::opts::WalkDirOptionsImmut;
@@ -59,7 +56,7 @@ impl<E: source::SourceExt> DirEntryRecord<E> {
     fn new( 
         r_rawdent: wd::ResultInner<RawDirEntry<E>, E>, 
         opts_immut: &WalkDirOptionsImmut<E>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) -> Option<Self> {
         let r_flat_dent = match r_rawdent {
@@ -142,7 +139,7 @@ impl<E, CP> DirContent<E, CP> where
     CP: ContentProcessor<E>,
 {
     /// New DirContent from alone DirEntry
-    pub fn new_once<P: AsRef<E::Path>>( 
+    pub fn new_once<P: AsRef<E::Path> + Copy>( 
         path: P,
         ctx: &mut E::IteratorExt,
     ) -> wd::ResultInner<Self, E> {
@@ -172,10 +169,10 @@ impl<E, CP> DirContent<E, CP> where
     pub fn load_all(
         &mut self, 
         opts_immut: &WalkDirOptionsImmut<E>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) {
-        let mut collected = self.rd.collect_all(& move |r_rawdent| Self::new_rec( r_rawdent, opts_immut, process_rawdent, ctx ));
+        let mut collected = self.rd.collect_all(&mut |r_rawdent| Self::new_rec( r_rawdent, opts_immut, process_rawdent, ctx ));
 
         if self.content.is_empty() {
             self.content = collected;
@@ -189,7 +186,7 @@ impl<E, CP> DirContent<E, CP> where
     fn new_rec(
         r_rawdent: wd::ResultInner<RawDirEntry<E>, E>, 
         opts_immut: &WalkDirOptionsImmut<E>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) -> Option<DirEntryRecord<E>> {
         let rec = DirEntryRecord::<E>::new( r_rawdent, opts_immut, process_rawdent, ctx )?;
@@ -206,7 +203,7 @@ impl<E, CP> DirContent<E, CP> where
     pub fn get_next_rec(
         &mut self, 
         opts_immut: &WalkDirOptionsImmut<E>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) -> Option<(bool, bool)> {
         loop {
@@ -275,7 +272,7 @@ impl<E, CP> DirContent<E, CP> where
         &mut self, 
         opts_immut: &WalkDirOptionsImmut<E>, 
         cmp: &mut FnCmp<E>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) {
         self.load_all( opts_immut, process_rawdent, ctx );
@@ -417,7 +414,7 @@ impl<E, CP> DirState<E, CP> where
         &mut self, 
         opts_immut: &WalkDirOptionsImmut<E>, 
         sorter: &mut Option<FnCmp<E>>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) {
 
@@ -428,12 +425,12 @@ impl<E, CP> DirState<E, CP> where
     }
 
     /// New DirState from alone DirEntry
-    pub fn new_once<P: AsRef<E::Path>>( 
+    pub fn new_once<P: AsRef<E::Path> + Copy>( 
         path: P, 
         depth: Depth, 
         opts_immut: &WalkDirOptionsImmut<E>, 
         sorter: &mut Option<FnCmp<E>>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) -> wd::ResultInner<Self, E> {
         let mut this = Self {
@@ -453,7 +450,7 @@ impl<E, CP> DirState<E, CP> where
         depth: Depth, 
         opts_immut: &WalkDirOptionsImmut<E>, 
         sorter: &mut Option<FnCmp<E>>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) -> wd::ResultInner<Self, E> {
         let mut this = Self {
@@ -472,7 +469,7 @@ impl<E, CP> DirState<E, CP> where
     pub fn load_all(
         &mut self, 
         opts_immut: &WalkDirOptionsImmut<E>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) {
         self.content.load_all(opts_immut, process_rawdent, ctx)
@@ -483,7 +480,7 @@ impl<E, CP> DirState<E, CP> where
     fn shift_next(
         &mut self, 
         opts_immut: &WalkDirOptionsImmut<E>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) -> bool {
         loop {
@@ -520,7 +517,7 @@ impl<E, CP> DirState<E, CP> where
     pub fn next_position(
         &mut self, 
         opts_immut: &WalkDirOptionsImmut<E>, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) {
         if self.position == Position::AfterContent {
@@ -561,7 +558,7 @@ impl<E, CP> DirState<E, CP> where
         filter: ContentFilter, 
         opts_immut: &WalkDirOptionsImmut<E>,
         content_processor: &mut CP, 
-        process_rawdent: &impl (Fn(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
+        process_rawdent: &mut impl (FnMut(RawDirEntry<E>, &mut E::IteratorExt) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>), 
         ctx: &mut E::IteratorExt,
     ) -> CP::Collection {
 

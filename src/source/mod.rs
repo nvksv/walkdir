@@ -99,7 +99,7 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
     /// Extension for RawDirEntry
     type RawDirEntryExt: fmt::Debug;
     /// Extension for DirEntry
-    type DirEntryExt: fmt::Debug;
+    type DirEntryExt: fmt::Debug + Clone;
 
     /// io::Error
     type FsError: SourceFsError<Self>;
@@ -154,6 +154,7 @@ pub trait SourceExt: fmt::Debug + Clone + Send + Sync + Sized {
         ctx: &mut Self::IteratorExt 
     ) -> Result<Self::RawDirEntryExt, Self::FsError>;
 
+    /// Create extension for DirEntry
     fn dent_new<P: AsRef<Self::Path>>( 
         path: P, 
         raw_ext: &Self::RawDirEntryExt,

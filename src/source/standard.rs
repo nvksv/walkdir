@@ -44,6 +44,7 @@ impl SourceExt for Nil {
         Self {}
     }
 
+    #[allow(unused_variables)]
     fn dent_new<P: AsRef<Self::Path>>( 
         path: P, 
         raw_ext: &Self::RawDirEntryExt,
@@ -53,6 +54,7 @@ impl SourceExt for Nil {
     }
 
     /// Create extension from DirEntry
+    #[allow(unused_variables)]
     fn rawdent_from_fsentry(
         ent: &Self::FsDirEntry,
     ) -> Result<Self::RawDirEntryExt, Self::FsError> {
@@ -60,10 +62,17 @@ impl SourceExt for Nil {
     }
 
     /// Create extension from metadata
-    fn rawdent_from_path<P: AsRef<Self::Path>>( path: P, follow_link: bool, md: Self::FsMetadata, ctx: &mut Self::IteratorExt ) -> Result<Self::RawDirEntryExt, Self::FsError> {
+    #[allow(unused_variables)]
+    fn rawdent_from_path<P: AsRef<Self::Path>>( 
+        path: P, 
+        follow_link: bool, 
+        md: Self::FsMetadata, 
+        ctx: &mut Self::IteratorExt 
+    ) -> Result<Self::RawDirEntryExt, Self::FsError> {
         (Self::RawDirEntryExt {}).into_ok()
     }
 
+    #[allow(unused_variables)]
     fn metadata<P: AsRef<Self::Path>>(
         path: P, 
         follow_link: bool, 
@@ -87,6 +96,7 @@ impl SourceExt for Nil {
     }
 
     /// Get metadata 
+    #[allow(unused_variables)]
     fn dent_metadata<P: AsRef<Self::Path>>(
         path: P, 
         follow_link: bool, 

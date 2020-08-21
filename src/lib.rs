@@ -134,6 +134,7 @@ pub use crate::iter::{FilterEntry, WalkDirIter};
 pub use crate::classic_iter::{ClassicWalkDirIter};
 pub use crate::wd::{Depth, Position, ContentFilter, ContentOrder, WalkDirIteratorItem};
 pub use crate::source::{SourcePath, SourcePathBuf};
+pub use crate::cp::{ContentProcessor, DirEntryContentProcessor};
 
 /// Default (classic) WalkDir
-pub type WalkDir = WalkDirBuilder<source::DefaultSourceExt>;
+pub type WalkDir = WalkDirBuilder<source::DefaultSourceExt, DirEntryContentProcessor>;
