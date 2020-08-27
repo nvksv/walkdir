@@ -20,7 +20,7 @@ use std::result;
 use std::time::Instant;
 
 use bstr::BString;
-use walkdir::{WalkDir, Depth};
+use walkdir::{Depth, WalkDir};
 
 type Result<T> = result::Result<T, Box<dyn Error>>;
 
@@ -54,11 +54,7 @@ fn try_main() -> Result<()> {
     Ok(())
 }
 
-fn print_count<W1, W2>(
-    args: &Args,
-    mut stdout: W1,
-    mut stderr: W2,
-) -> Result<()>
+fn print_count<W1, W2>(args: &Args, mut stdout: W1, mut stderr: W2) -> Result<()>
 where
     W1: io::Write,
     W2: io::Write,
@@ -80,11 +76,7 @@ where
     Ok(())
 }
 
-fn print_paths<W1, W2>(
-    args: &Args,
-    mut stdout: W1,
-    mut stderr: W2,
-) -> Result<()>
+fn print_paths<W1, W2>(args: &Args, mut stdout: W1, mut stderr: W2) -> Result<()>
 where
     W1: io::Write,
     W2: io::Write,
@@ -99,12 +91,7 @@ where
     Ok(())
 }
 
-fn print_paths_flat<W1, W2>(
-    args: &Args,
-    mut stdout: W1,
-    mut stderr: W2,
-    dir: &Path,
-) -> Result<()>
+fn print_paths_flat<W1, W2>(args: &Args, mut stdout: W1, mut stderr: W2, dir: &Path) -> Result<()>
 where
     W1: io::Write,
     W2: io::Write,
@@ -125,12 +112,7 @@ where
     Ok(())
 }
 
-fn print_paths_tree<W1, W2>(
-    args: &Args,
-    mut stdout: W1,
-    mut stderr: W2,
-    dir: &Path,
-) -> Result<()>
+fn print_paths_tree<W1, W2>(args: &Args, mut stdout: W1, mut stderr: W2, dir: &Path) -> Result<()>
 where
     W1: io::Write,
     W2: io::Write,
@@ -202,41 +184,26 @@ impl Args {
                     .default_value("10")
                     .help("Use at most this many open file descriptors."),
             )
-            .arg(
-                Arg::with_name("tree")
-                    .long("tree")
-                    .help("Show file paths in a tree."),
-            )
+            .arg(Arg::with_name("tree").long("tree").help("Show file paths in a tree."))
             .arg(
                 Arg::with_name("ignore-errors")
                     .long("ignore-errors")
                     .short("q")
                     .help("Don't print error messages."),
             )
+            .arg(Arg::with_name("sort").long("sort").help("Sort file paths lexicographically."))
             .arg(
-                Arg::with_name("sort")
-                    .long("sort")
-                    .help("Sort file paths lexicographically."),
-            )
-            .arg(
-                Arg::with_name("depth-first").long("depth-first").help(
-                    "Show directory contents before the directory path.",
-                ),
+                Arg::with_name("depth-first")
+                    .long("depth-first")
+                    .help("Show directory contents before the directory path."),
             )
             .arg(
                 Arg::with_name("same-file-system")
                     .long("same-file-system")
                     .short("x")
-                    .help(
-                        "Only show paths on the same file system as the root.",
-                    ),
+                    .help("Only show paths on the same file system as the root."),
             )
-            .arg(
-                Arg::with_name("timeit")
-                    .long("timeit")
-                    .short("t")
-                    .help("Print timing info."),
-            )
+            .arg(Arg::with_name("timeit").long("timeit").short("t").help("Print timing info."))
             .arg(
                 Arg::with_name("count")
                     .long("count")
@@ -250,7 +217,7 @@ impl Args {
             Some(dirs) => dirs.map(PathBuf::from).collect(),
         };
         Ok(Args {
-            dirs: dirs,
+            dirs,
             follow_links: parsed.is_present("follow-links"),
             min_depth: parse_usize(&parsed, "min-depth")?,
             max_depth: parse_usize(&parsed, "max-depth")?,
@@ -286,15 +253,12 @@ impl Args {
     }
 }
 
-fn parse_usize(
-    parsed: &clap::ArgMatches,
-    flag: &str,
-) -> Result<Option<usize>> {
+fn parse_usize(parsed: &clap::ArgMatches, flag: &str) -> Result<Option<usize>> {
     match parsed.value_of_lossy(flag) {
         None => Ok(None),
-        Some(x) => x.parse().map(Some).or_else(|e| {
-            err!("failed to parse --{} as a number: {}", flag, e)
-        }),
+        Some(x) => {
+            x.parse().map(Some).or_else(|e| err!("failed to parse --{} as a number: {}", flag, e))
+        }
     }
 }
 

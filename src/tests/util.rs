@@ -5,8 +5,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::result;
 
-use crate::source;
-use crate::source::{SourcePath, SourcePathBuf};
+use crate::storage;
+use crate::storage::{StoragePath, StoragePathBuf};
 use crate::{DirEntry, Error};
 
 /// Create an error from a format!-like syntax.
@@ -22,12 +22,12 @@ pub type Result<T> = result::Result<T, Box<dyn error::Error + Send + Sync>>;
 
 /// The result of running a recursive directory iterator on a single directory.
 #[derive(Debug)]
-pub struct RecursiveResults<E: source::SourceExt> {
+pub struct RecursiveResults<E: storage::StorageExt> {
     ents: Vec<DirEntry<E>>,
     errs: Vec<Error<E>>,
 }
 
-impl<E: source::SourceExt> RecursiveResults<E> {
+impl<E: storage::StorageExt> RecursiveResults<E> {
     /// Return all of the errors encountered during traversal.
     pub fn errs(&self) -> &[Error<E>] {
         &self.errs
@@ -35,11 +35,7 @@ impl<E: source::SourceExt> RecursiveResults<E> {
 
     /// Assert that no errors have occurred.
     pub fn assert_no_errors(&self) {
-        assert!(
-            self.errs.is_empty(),
-            "expected to find no errors, but found: {:?}",
-            self.errs
-        );
+        assert!(self.errs.is_empty(), "expected to find no errors, but found: {:?}", self.errs);
     }
 
     /// Return all the successfully retrieved directory entries in the order
@@ -100,7 +96,7 @@ impl Dir {
 
     /// Run the given iterator and return the result as a distinct collection
     /// of directory entries and errors.
-    pub fn run_recursive<I, E: source::SourceExt>(&self, it: I) -> RecursiveResults<E>
+    pub fn run_recursive<I, E: storage::StorageExt>(&self, it: I) -> RecursiveResults<E>
     where
         I: Iterator<Item = result::Result<DirEntry<E>, Error<E>>>,
     {
@@ -119,9 +115,7 @@ impl Dir {
     pub fn mkdirp<P: AsRef<Path>>(&self, path: P) {
         let full = self.join(path);
         fs::create_dir_all(&full)
-            .map_err(|e| {
-                err!("failed to create directory {}: {}", full.display(), e)
-            })
+            .map_err(|e| err!("failed to create directory {}: {}", full.display(), e))
             .unwrap();
     }
 
@@ -130,9 +124,7 @@ impl Dir {
     pub fn touch<P: AsRef<Path>>(&self, path: P) {
         let full = self.join(path);
         File::create(&full)
-            .map_err(|e| {
-                err!("failed to create file {}: {}", full.display(), e)
-            })
+            .map_err(|e| err!("failed to create file {}: {}", full.display(), e))
             .unwrap();
     }
 
@@ -145,11 +137,7 @@ impl Dir {
     }
 
     /// Create a file symlink to the given src with the given link name.
-    pub fn symlink_file<P1: AsRef<Path>, P2: AsRef<Path>>(
-        &self,
-        src: P1,
-        link_name: P2,
-    ) {
+    pub fn symlink_file<P1: AsRef<Path>, P2: AsRef<Path>>(&self, src: P1, link_name: P2) {
         #[cfg(windows)]
         fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
             use std::os::windows::fs::symlink_file;
@@ -176,11 +164,7 @@ impl Dir {
     }
 
     /// Create a directory symlink to the given src with the given link name.
-    pub fn symlink_dir<P1: AsRef<Path>, P2: AsRef<Path>>(
-        &self,
-        src: P1,
-        link_name: P2,
-    ) {
+    pub fn symlink_dir<P1: AsRef<Path>, P2: AsRef<Path>>(&self, src: P1, link_name: P2) {
         #[cfg(windows)]
         fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
             use std::os::windows::fs::symlink_dir;
@@ -239,9 +223,8 @@ impl TempDir {
             if path.is_dir() {
                 continue;
             }
-            fs::create_dir_all(&path).map_err(|e| {
-                err!("failed to create {}: {}", path.display(), e)
-            })?;
+            fs::create_dir_all(&path)
+                .map_err(|e| err!("failed to create {}: {}", path.display(), e))?;
             return Ok(TempDir(path));
         }
         Err(err!("failed to create temp dir after {} tries", TRIES))

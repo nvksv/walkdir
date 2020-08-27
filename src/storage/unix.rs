@@ -1,4 +1,4 @@
-use crate::source::{Nil, SourceExt};
+use crate::storage::{Nil, StorageExt};
 
 use std::fmt::Debug;
 use std::fs;
@@ -19,7 +19,7 @@ pub struct RawDirEntryUnixExt {
 #[derive(Debug, Clone)]
 pub struct WalkDirUnixExt {}
 
-impl SourceExt for WalkDirUnixExt {
+impl StorageExt for WalkDirUnixExt {
     type BuilderCtx = Nil;
 
     type OptionsExt = Nil;
@@ -47,7 +47,7 @@ impl SourceExt for WalkDirUnixExt {
     }
 
     /// Make new ancestor
-    fn ancestor_new(dent: &Self::FsDirEntry) -> Result<Self::AncestorExt, Self::FsError> {
+    fn ancestor_new(dent: &Self::DirEntry) -> Result<Self::AncestorExt, Self::Error> {
         Ok(Self::AncestorExt {})
     }
 
@@ -57,23 +57,26 @@ impl SourceExt for WalkDirUnixExt {
     }
 
     /// Create extension from DirEntry
-    fn rawdent_from_fsentry(
-        ent: &Self::FsDirEntry,
-    ) -> Result<Self::RawDirEntryExt, Self::FsError> {
+    fn rawdent_from_fsentry(ent: &Self::DirEntry) -> Result<Self::RawDirEntryExt, Self::Error> {
         (Self::RawDirEntryExt { ino: ent.ino() }).into_ok()
     }
 
     /// Create extension from metadata
-    fn rawdent_from_path<P: AsRef<Self::Path>>( path: P, follow_link: bool, md: Self::FsMetadata, ctx: &mut Self::IteratorExt ) -> Result<Self::RawDirEntryExt, Self::FsError> {
+    fn rawdent_from_path<P: AsRef<Self::Path>>(
+        path: P,
+        follow_link: bool,
+        md: Self::Metadata,
+        ctx: &mut Self::IteratorExt,
+    ) -> Result<Self::RawDirEntryExt, Self::Error> {
         Self::RawDirEntryExt { ino: md.ino() }
     }
 
     fn metadata<P: AsRef<Self::Path>>(
-        path: P, 
-        follow_link: bool, 
+        path: P,
+        follow_link: bool,
         raw_ext: Option<&Self::RawDirEntryExt>,
         ctx: &mut Self::IteratorExt,
-    ) -> Result<Self::FsMetadata, Self::FsError> {
+    ) -> Result<Self::Metadata, Self::Error> {
         if follow_link {
             fs::metadata(path)
         } else {
@@ -86,13 +89,11 @@ impl SourceExt for WalkDirUnixExt {
         path: P,
         raw_ext: &Self::RawDirEntryExt,
         ctx: &mut Self::IteratorExt,
-    ) -> Result<Self::FsReadDir, Self::FsError> {
+    ) -> Result<Self::ReadDir, Self::Error> {
         fs::read_dir(path.as_ref())
     }
 
-    fn get_handle<P: AsRef<Self::Path>>(
-        path: P,
-    ) -> io::Result<Self::SameFileHandle> {
+    fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle> {
         same_file::Handle::from_path(path)
     }
 
@@ -106,9 +107,7 @@ impl SourceExt for WalkDirUnixExt {
     }
 
     #[allow(unused_variables)]
-    fn dent_from_rawdent(
-        raw: &Self::RawDirEntryExt,
-    ) -> Self::DirEntryExt {
+    fn dent_from_rawdent(raw: &Self::RawDirEntryExt) -> Self::DirEntryExt {
         raw
     }
 
@@ -118,7 +117,7 @@ impl SourceExt for WalkDirUnixExt {
         path.as_ref().metadata().map(|md| md.dev())
     }
 
-    fn get_file_name(path: &Self::PathBuf) -> &Self::FsFileName {
+    fn get_file_name(path: &Self::PathBuf) -> &Self::FileName {
         path.file_name().unwrap_or_else(|| path.as_os_str())
     }
 }

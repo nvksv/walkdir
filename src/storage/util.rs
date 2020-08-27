@@ -1,6 +1,6 @@
-use crate::source::{
-    SourceExt, SourceFsDirEntry, SourceFsFileType, SourceFsMetadata,
-    SourceFsReadDir, SourcePath, SourcePathBuf, SourceFsError
+use crate::storage::{
+    StorageDirEntry, StorageError, StorageExt, StorageFileType, StorageMetadata, StoragePath,
+    StoragePathBuf, StorageReadDir,
 };
 
 use crate::error;
@@ -9,22 +9,21 @@ use crate::error;
 #[derive(Debug, Clone, Default)]
 pub struct Nil {}
 
-
-impl SourcePath<std::path::PathBuf> for std::path::Path {
+impl StoragePath<std::path::PathBuf> for std::path::Path {
     #[inline(always)]
     fn to_path_buf(&self) -> std::path::PathBuf {
         self.to_path_buf()
     }
 }
 
-impl SourcePath<std::string::String> for str {
+impl StoragePath<std::string::String> for str {
     #[inline(always)]
     fn to_path_buf(&self) -> std::string::String {
         self.to_string()
     }
 }
 
-impl<'s> SourcePathBuf<'s> for std::path::PathBuf {
+impl<'s> StoragePathBuf<'s> for std::path::PathBuf {
     type Display = std::path::Display<'s>;
 
     #[inline(always)]
@@ -44,7 +43,7 @@ impl<'s> std::fmt::Display for StringDisplay<'s> {
     }
 }
 
-impl<'s> SourcePathBuf<'s> for std::string::String {
+impl<'s> StoragePathBuf<'s> for std::string::String {
     type Display = StringDisplay<'s>;
 
     #[inline(always)]
@@ -53,14 +52,15 @@ impl<'s> SourcePathBuf<'s> for std::string::String {
     }
 }
 
-impl<E> SourceFsDirEntry<E> for std::fs::DirEntry
+impl<E> StorageDirEntry<E> for std::fs::DirEntry
 where
-    E: 'static + SourceExt<
-        Path = std::path::Path,
-        PathBuf = std::path::PathBuf,
-        FsError = std::io::Error,
-        FsFileType = std::fs::FileType,
-    >,
+    E: 'static
+        + StorageExt<
+            Path = std::path::Path,
+            PathBuf = std::path::PathBuf,
+            Error = std::io::Error,
+            FileType = std::fs::FileType,
+        >,
 {
     #[inline(always)]
     fn path(&self) -> E::PathBuf {
@@ -68,23 +68,24 @@ where
     }
 
     #[inline(always)]
-    fn file_type(&self) -> Result<E::FsFileType, E::FsError> {
+    fn file_type(&self) -> Result<E::FileType, E::Error> {
         std::fs::DirEntry::file_type(self)
     }
 }
 
-impl<E> SourceFsReadDir<E> for std::fs::ReadDir where
-    E: 'static + SourceExt<
-        Path = std::path::Path,
-        PathBuf = std::path::PathBuf,
-        FsError = std::io::Error,
-        FsDirEntry = std::fs::DirEntry,
-        FsFileType = std::fs::FileType,
-    >
+impl<E> StorageReadDir<E> for std::fs::ReadDir where
+    E: 'static
+        + StorageExt<
+            Path = std::path::Path,
+            PathBuf = std::path::PathBuf,
+            Error = std::io::Error,
+            DirEntry = std::fs::DirEntry,
+            FileType = std::fs::FileType,
+        >
 {
 }
 
-impl SourceFsFileType for std::fs::FileType {
+impl StorageFileType for std::fs::FileType {
     #[inline(always)]
     fn is_dir(&self) -> bool {
         std::fs::FileType::is_dir(self)
@@ -101,25 +102,23 @@ impl SourceFsFileType for std::fs::FileType {
     }
 }
 
-impl<E> SourceFsMetadata<E> for std::fs::Metadata
+impl<E> StorageMetadata<E> for std::fs::Metadata
 where
-    E: SourceExt<FsFileType = std::fs::FileType>,
+    E: StorageExt<FileType = std::fs::FileType>,
 {
     #[inline(always)]
-    fn file_type(&self) -> E::FsFileType {
+    fn file_type(&self) -> E::FileType {
         std::fs::Metadata::file_type(self)
     }
 }
 
-
-
-impl<E> SourceFsError<E> for std::io::Error 
+impl<E> StorageError<E> for std::io::Error
 where
-    E: 'static + SourceExt<FsError = std::io::Error>,
+    E: 'static + StorageExt<Error = std::io::Error>,
 {
     #[inline(always)]
     fn new(kind: std::io::ErrorKind, error: error::Error<E>) -> Self {
-        std::io::Error::new( kind, error )
+        std::io::Error::new(kind, error)
     }
 
     #[inline(always)]

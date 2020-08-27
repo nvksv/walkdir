@@ -1,7 +1,7 @@
+use crate::error::{into_io_err, Error};
+use crate::storage;
+use crate::storage::{StorageFileType, StoragePath};
 use crate::wd::{self, Depth};
-use crate::source;
-use crate::source::{SourceFsFileType};
-use crate::error::{Error, into_io_err};
 // use crate::rawdent::RawDirEntry;
 use crate::dir::FlatDirEntry;
 
@@ -32,13 +32,13 @@ use crate::dir::FlatDirEntry;
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
 /// [`DirEntryExt`]: trait.DirEntryExt.html
 #[derive(Debug, Clone)]
-pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
+pub struct DirEntry<E: storage::StorageExt = storage::DefaultStorageExt> {
     /// Raw dent
     path: E::PathBuf,
     /// Is normal dir
     is_dir: bool,
     /// File type
-    ty: E::FsFileType,
+    ty: E::FileType,
     /// Follow link
     follow_link: bool,
     /// The depth at which this entry was generated relative to the root.
@@ -47,7 +47,7 @@ pub struct DirEntry<E: source::SourceExt = source::DefaultSourceExt> {
     ext: E::DirEntryExt,
 }
 
-impl<E: source::SourceExt> DirEntry<E> {
+impl<E: storage::StorageExt> DirEntry<E> {
     /// The full path that this entry represents.
     ///
     /// The full path is created by joining the parents of this entry up to the
@@ -112,19 +112,10 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    pub fn metadata(&self) -> wd::Result<E::FsMetadata, E> {
+    pub fn metadata(&self) -> wd::Result<E::Metadata, E> {
         E::dent_metadata(&self.path, self.follow_link, &self.ext)
             .map_err(|err| Error::<E>::from_inner(into_io_err(err), self.depth))
     }
-
-    // fn metadata_internal(&self) -> wd::ResultInner<E::FsMetadata, E> {
-    //     if self.follow_link {
-    //         E::metadata(&self.path)
-    //     } else {
-    //         E::symlink_metadata_internal(self)
-    //     }
-    //     .map_err(ErrorInner::<E>::from_io)
-    // }
 
     /// Return the file type for the file that this entry points to.
     ///
@@ -134,7 +125,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     /// This never makes any system calls.
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    pub fn file_type(&self) -> E::FsFileType {
+    pub fn file_type(&self) -> E::FileType {
         self.ty.clone()
     }
 
@@ -142,7 +133,7 @@ impl<E: source::SourceExt> DirEntry<E> {
     ///
     /// If this entry has no file name (e.g., `/`), then the full path is
     /// returned.
-    pub fn file_name(&self) -> &E::FsFileName {
+    pub fn file_name(&self) -> &E::FileName {
         E::get_file_name(&self.path)
     }
 
@@ -160,65 +151,20 @@ impl<E: source::SourceExt> DirEntry<E> {
         self.is_dir
     }
 
-    // /// Returns true if and only if this entry points to a directory.
-    // pub(crate) fn loop_link(&self) -> Option<Depth> {
-    //     self.loop_link
-    // }
-
-    // pub(crate) fn from_raw(
-    //     raw: RawDirEntry<E>,
-    //     is_dir: bool,
-    //     follow_link: bool,
-    //     loop_link: Option<Depth>,
-    //     depth: Depth,
-    // ) -> Self {
-    //     Self {
-    //         raw,
-    //         is_dir,
-    //         follow_link,
-    //         loop_link,
-    //         depth
-    //     }
-    // }
-
-    pub(crate) fn from_flat(
-        flat: &FlatDirEntry<E>,
+    pub(crate) fn from_parts(
+        path: &E::Path,
+        is_dir: bool,
+        follow_link: bool,
         depth: Depth,
+        raw_ext: &mut E::RawDirEntryExt,
         ctx: &mut E::IteratorExt,
     ) -> Self {
-        let (path, ty, follow_link, ext) = flat.raw.clone_dent_parts(ctx);
+        let pb = path.to_path_buf();
+        let dent_ext = E::dent_new(path, raw_ext, ctx);
 
-        Self {
-            path,
-            is_dir: flat.is_dir,
-            ty,
-            follow_link,
-            depth,
-            ext,
-        }
+        Self { path: pb, is_dir: flat.is_dir, ty, follow_link, depth, ext }
     }
-
-//     pub(crate) fn into_flat(self) -> FlatDirEntry<E> {
-//         FlatDirEntry::<E> {
-//             raw: self.raw,
-//             is_dir: self.is_dir,
-//             loop_link: self.loop_link,
-//         }
-//     }
 }
-
-// impl<E: source::SourceExt> fmt::Debug for DirEntry<E> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         f.debug_struct("DirEntry")
-//             .field("path", &self.path)
-//             .field("is_dir", &self.is_dir)
-//             .field("ty", &self.ty)
-//             .field("follow_link", &self.follow_link)
-//             .field("depth", &self.depth)
-//             .field("ext", &self.ext)
-//             .finish()
-//     }
-// }
 
 /// Unix-specific extension methods for `walkdir::DirEntry`
 #[cfg(unix)]
@@ -229,7 +175,7 @@ pub trait DirEntryExt {
 }
 
 #[cfg(unix)]
-impl DirEntryExt for DirEntry<source::WalkDirUnixExt> {
+impl DirEntryExt for DirEntry<storage::WalkDirUnixExt> {
     /// Returns the underlying `d_ino` field in the contained `dirent`
     /// structure.
     fn ino(&self) -> u64 {

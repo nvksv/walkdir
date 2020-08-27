@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::tests::util::Dir;
-use crate::{WalkDir, Position, WalkDirIter, ClassicWalkDirIter, ContentOrder, ContentFilter};
+use crate::{ClassicWalkDirIter, ContentFilter, ContentOrder, Position, WalkDir, WalkDirIter};
 
 /// Check for defaulted type parameter bug
 /// See https://github.com/rust-lang/rust/issues/27336
@@ -26,8 +26,8 @@ fn send_sync_traits() {
     assert_sync::<WalkDir>();
     // assert_send::<WalkDirIterator>();
     // assert_sync::<WalkDirIterator>();
-    // assert_send::<FilterEntry<source::DefaultSourceExt, WalkDirIterator, (dyn FnMut(&WalkDirIteratorItem<source::DefaultSourceExt>) -> bool + Send)>>();
-    // assert_sync::<FilterEntry<source::DefaultSourceExt, WalkDirIterator, (dyn FnMut(&WalkDirIteratorItem<source::DefaultSourceExt>) -> bool) + Sync>>();
+    // assert_send::<FilterEntry<storage::DefaultStorageExt, WalkDirIterator, (dyn FnMut(&WalkDirIteratorItem<storage::DefaultStorageExt>) -> bool + Send)>>();
+    // assert_sync::<FilterEntry<storage::DefaultStorageExt, WalkDirIterator, (dyn FnMut(&WalkDirIteratorItem<storage::DefaultStorageExt>) -> bool) + Sync>>();
 }
 
 #[test]
@@ -144,11 +144,7 @@ fn one_dir_one_file() {
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.path().to_path_buf(),
-        dir.join("foo"),
-        dir.join("foo").join("a"),
-    ];
+    let expected = vec![dir.path().to_path_buf(), dir.join("foo"), dir.join("foo").join("a")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -220,8 +216,7 @@ fn many_mixed() {
 
 #[test]
 fn nested() {
-    let nested =
-        PathBuf::from("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
+    let nested = PathBuf::from("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
     let dir = Dir::tmp();
     dir.mkdirp(&nested);
     dir.touch(nested.join("A"));
@@ -265,8 +260,7 @@ fn nested() {
 
 #[test]
 fn nested_small_max_open() {
-    let nested =
-        PathBuf::from("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
+    let nested = PathBuf::from("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
     let dir = Dir::tmp();
     dir.mkdirp(&nested);
     dir.touch(nested.join("A"));
@@ -784,8 +778,7 @@ fn max_depth_2() {
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
-    let expected =
-        vec![dir.path().to_path_buf(), dir.join("a"), dir.join("a").join("b")];
+    let expected = vec![dir.path().to_path_buf(), dir.join("a"), dir.join("a").join("b")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -856,30 +849,34 @@ fn classic_contents_first_ordered() {
     dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
 
     let mut wd = WalkDir::new(dir.path())
-                .contents_first(false)
-                .content_filter(ContentFilter::SkipAll)
-                .sort_by(|a, b| a.file_name().cmp(&b.file_name()))
-                .into_iter();
+        .contents_first(false)
+        .content_filter(ContentFilter::SkipAll)
+        .sort_by(|a, b| a.file_name().cmp(&b.file_name()))
+        .into_iter();
     let mut r: Vec<(PathBuf, Vec<String>)> = vec![];
     while let Some(pos) = wd.next() {
         match pos {
             Position::BeforeContent((dent, content)) => {
                 let path = dent.path().to_path_buf();
-                let content = wd.get_current_dir_content(ContentFilter::FilesOnly).iter().map(|dent| dent.file_name().to_str().unwrap().to_string()).collect::<Vec<_>>();
+                let content = wd
+                    .get_current_dir_content(ContentFilter::FilesOnly)
+                    .iter()
+                    .map(|dent| dent.file_name().to_str().unwrap().to_string())
+                    .collect::<Vec<_>>();
 
                 r.push((path, content));
-            },
-            Position::AfterContent => {},
+            }
+            Position::AfterContent => {}
             _ => panic!(),
         }
     }
 
     let expected = vec![
-        (dir.path().to_path_buf(),      vec!["a".to_string(), "b".to_string(), "c".to_string()]),
-        (dir.join("baz"),               vec!["a".to_string(), "b".to_string(), "c".to_string()]),
-        (dir.join("foo"),               vec!["a".to_string(), "b".to_string(), "c".to_string(), "z".to_string()]),
-        (dir.join("foo").join("bar"),   vec!["a".to_string(), "b".to_string(), "c".to_string()]),
-        (dir.join("zzz"),               vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        (dir.path().to_path_buf(), vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        (dir.join("baz"), vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        (dir.join("foo"), vec!["a".to_string(), "b".to_string(), "c".to_string(), "z".to_string()]),
+        (dir.join("foo").join("bar"), vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        (dir.join("zzz"), vec!["a".to_string(), "b".to_string(), "c".to_string()]),
     ];
     assert_eq!(expected, r);
 }
@@ -897,7 +894,10 @@ fn contents_first_ordered() {
     dir.touch_all(&["zzz/a", "zzz/b", "zzz/c"]);
     dir.touch_all(&["baz/a", "baz/b", "baz/c"]);
 
-    let wd = WalkDir::new(dir.path()).contents_first(false).content_order(ContentOrder::FilesFirst).sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    let wd = WalkDir::new(dir.path())
+        .contents_first(false)
+        .content_order(ContentOrder::FilesFirst)
+        .sort_by(|a, b| a.file_name().cmp(&b.file_name()));
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -937,7 +937,7 @@ fn skip_current_dir() {
     while let Some(result) = it.next() {
         let ent = match result {
             Position::Entry(ent) => ent,
-            Position::BeforeContent(_) | Position::AfterContent => {continue},
+            Position::BeforeContent(_) | Position::AfterContent => continue,
             _ => panic!(),
         };
         paths.push(ent.path().to_path_buf());
@@ -962,9 +962,7 @@ fn filter_entry() {
     dir.mkdirp("foo/bar/baz/abc");
     dir.mkdirp("quux");
 
-    let wd = WalkDir::new(dir.path())
-        .into_iter()
-        .filter_entry(|dent| dent.file_name() != "baz");
+    let wd = WalkDir::new(dir.path()).into_iter().filter_entry(|dent| dent.file_name() != "baz");
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -983,8 +981,7 @@ fn sort() {
     dir.mkdirp("foo/bar/baz/abc");
     dir.mkdirp("quux");
 
-    let wd = WalkDir::new(dir.path())
-        .sort_by(|a, b| a.file_name().cmp(&b.file_name()).reverse());
+    let wd = WalkDir::new(dir.path()).sort_by(|a, b| a.file_name().cmp(&b.file_name()).reverse());
     let r = dir.run_recursive(wd.into_classic());
     r.assert_no_errors();
 
@@ -1043,18 +1040,15 @@ fn same_file_system() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected =
-        vec![dir.path().to_path_buf(), dir.join("a"), dir.join("sys-link")];
+    let expected = vec![dir.path().to_path_buf(), dir.join("a"), dir.join("sys-link")];
     assert_eq!(expected, r.sorted_paths());
 
     // ... now follow symlinks and ensure we don't descend into /sys.
-    let wd =
-        WalkDir::new(dir.path()).same_file_system(true).follow_links(true);
+    let wd = WalkDir::new(dir.path()).same_file_system(true).follow_links(true);
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected =
-        vec![dir.path().to_path_buf(), dir.join("a"), dir.join("sys-link")];
+    let expected = vec![dir.path().to_path_buf(), dir.join("a"), dir.join("sys-link")];
     assert_eq!(expected, r.sorted_paths());
 }
 

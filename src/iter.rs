@@ -1,18 +1,18 @@
-use crate::wd::{Position, WalkDirIteratorItem};
-use crate::source;
-use crate::walk::WalkDirIterator;
-use crate::cp::ContentProcessor;
 use crate::classic_iter::ClassicIter;
+use crate::cp::ContentProcessor;
+use crate::storage;
+use crate::walk::WalkDirIterator;
+use crate::wd::{Position, WalkDirIteratorItem};
 
 /////////////////////////////////////////////////////////////////////////
 //// WalkDirIter
 
 /// WalkDirIter
-pub trait WalkDirIter<E, CP>: Sized + Iterator<Item = WalkDirIteratorItem<E, CP>> where 
-    E: source::SourceExt,
+pub trait WalkDirIter<E, CP>: Sized + Iterator<Item = WalkDirIteratorItem<E, CP>>
+where
+    E: storage::StorageExt,
     CP: ContentProcessor<E>,
 {
-
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
     ///
@@ -63,11 +63,7 @@ pub trait WalkDirIter<E, CP>: Sized + Iterator<Item = WalkDirIteratorItem<E, CP>
     where
         P: FnMut(&CP::Item) -> bool,
     {
-        FilterEntry { 
-            inner: self, 
-            predicate: predicate,
-            _cp: std::marker::PhantomData,
-        }
+        FilterEntry { inner: self, predicate, _cp: std::marker::PhantomData }
     }
 
     /// WalkDirIter
@@ -79,21 +75,15 @@ pub trait WalkDirIter<E, CP>: Sized + Iterator<Item = WalkDirIteratorItem<E, CP>
     }
 }
 
-impl<E, CP> WalkDirIter<E, CP> for WalkDirIterator<E, CP> where
-    E: source::SourceExt,
+impl<E, CP> WalkDirIter<E, CP> for WalkDirIterator<E, CP>
+where
+    E: storage::StorageExt,
     CP: ContentProcessor<E>,
 {
     fn skip_current_dir(&mut self) {
         WalkDirIterator::<E, CP>::skip_current_dir(self);
     }
 }
-
-
-
-
-
-
-
 
 /////////////////////////////////////////////////////////////////////////
 //// FilterEntry
@@ -120,9 +110,9 @@ impl<E, CP> WalkDirIter<E, CP> for WalkDirIterator<E, CP> where
 /// [`min_depth`]: struct.WalkDir.html#method.min_depth
 /// [`max_depth`]: struct.WalkDir.html#method.max_depth
 #[derive(Debug)]
-pub struct FilterEntry<E, CP, I, P> 
+pub struct FilterEntry<E, CP, I, P>
 where
-    E: source::SourceExt,
+    E: storage::StorageExt,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -134,7 +124,7 @@ where
 
 impl<E, CP, I, P> Iterator for FilterEntry<E, CP, I, P>
 where
-    E: source::SourceExt,
+    E: storage::StorageExt,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -159,7 +149,7 @@ where
                     if CP::is_dir(dent) {
                         self.inner.skip_current_dir();
                     }
-                    continue
+                    continue;
                 }
             }
 
@@ -170,7 +160,7 @@ where
 
 impl<E, CP, I, P> FilterEntry<E, CP, I, P>
 where
-    E: source::SourceExt,
+    E: storage::StorageExt,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -222,11 +212,7 @@ where
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry(self, predicate: P) -> FilterEntry<E, CP, Self, P> {
-        FilterEntry { 
-            inner: self, 
-            predicate: predicate,
-            _cp: std::marker::PhantomData,
-        }
+        FilterEntry { inner: self, predicate, _cp: std::marker::PhantomData }
     }
 
     /// Skips the current directory.
@@ -278,17 +264,13 @@ where
 }
 
 impl<E, CP, I, P> WalkDirIter<E, CP> for FilterEntry<E, CP, I, P>
-    where
-        E: source::SourceExt,
-        CP: ContentProcessor<E>,
-        I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
-        P: FnMut(&CP::Item) -> bool,
+where
+    E: storage::StorageExt,
+    CP: ContentProcessor<E>,
+    I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
+    P: FnMut(&CP::Item) -> bool,
 {
     fn skip_current_dir(&mut self) {
         self.inner.skip_current_dir();
     }
 }
-
-
-
-

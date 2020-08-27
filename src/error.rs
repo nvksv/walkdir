@@ -1,9 +1,8 @@
 use std::fmt;
 
-use crate::source;
-use crate::source::{SourcePath, SourcePathBuf, SourceFsDirEntry};
+use crate::storage;
+use crate::storage::{StorageDirEntry, StoragePath, StoragePathBuf};
 use crate::wd::Depth;
-
 
 /// An error produced by recursively walking a directory.
 ///
@@ -25,67 +24,45 @@ use crate::wd::Depth;
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
 /// [impl]: struct.Error.html#impl-From%3CError%3E
 #[derive(Debug)]
-pub struct Error<E: source::SourceExt = source::DefaultSourceExt> {
+pub struct Error<E: storage::StorageExt = storage::DefaultStorageExt> {
     inner: ErrorInner<E>,
     depth: Depth,
 }
 
 #[derive(Debug)]
-pub enum ErrorInner<E: source::SourceExt> {
-    Io { 
-        path: Option<E::PathBuf>, 
-        err: Option<E::FsError> 
-    },
-    Loop { 
-        ancestor: E::PathBuf, 
-        child: E::PathBuf 
-    }
+pub enum ErrorInner<E: storage::StorageExt> {
+    Io { path: Option<E::PathBuf>, err: Option<E::Error> },
+    Loop { ancestor: E::PathBuf, child: E::PathBuf },
 }
 
-impl<E: source::SourceExt> ErrorInner<E> {
-    pub(crate) fn from_path(
-        pb: E::PathBuf,
-        err: E::FsError,
-    ) -> Self {
-        Self::Io { 
-            path: Some(pb), 
-            err: Some(err)
-        }
+impl<E: storage::StorageExt> ErrorInner<E> {
+    pub(crate) fn from_path(pb: E::PathBuf, err: E::Error) -> Self {
+        Self::Io { path: Some(pb), err: Some(err) }
     }
 
-    pub(crate) fn from_entry(raw_dent: &E::FsDirEntry, err: E::FsError) -> Self {
-        Self::Io {
-            path: Some(raw_dent.path().to_path_buf()),
-            err: Some(err),
-        }
+    pub(crate) fn from_entry(raw_dent: &E::DirEntry, err: E::Error) -> Self {
+        Self::Io { path: Some(raw_dent.path().to_path_buf()), err: Some(err) }
     }
 
-    pub(crate) fn from_io(err: E::FsError) -> Self {
-        Self::Io { 
-            path: None, 
-            err: Some(err)
-        }
+    pub(crate) fn from_io(err: E::Error) -> Self {
+        Self::Io { path: None, err: Some(err) }
     }
 
-    pub(crate) fn from_loop(
-        ancestor: &E::Path,
-        child: &E::Path,
-    ) -> Self {
-        Self::Loop {
-            ancestor: ancestor.to_path_buf(),
-            child: child.to_path_buf(),
-        }
+    pub(crate) fn from_loop(ancestor: &E::Path, child: &E::Path) -> Self {
+        Self::Loop { ancestor: ancestor.to_path_buf(), child: child.to_path_buf() }
     }
 
     pub fn take(&mut self) -> Self {
         match self {
             Self::Io { path, err } => Self::Io { path: path.clone(), err: err.take() },
-            Self::Loop { ancestor, child } => Self::Loop { ancestor: ancestor.clone(), child: child.clone() },            
+            Self::Loop { ancestor, child } => {
+                Self::Loop { ancestor: ancestor.clone(), child: child.clone() }
+            }
         }
     }
 }
 
-impl<E: source::SourceExt> std::error::Error for Error<E> {
+impl<E: storage::StorageExt> std::error::Error for Error<E> {
     #[allow(deprecated)]
     fn description(&self) -> &str {
         match self.inner {
@@ -108,22 +85,17 @@ impl<E: source::SourceExt> std::error::Error for Error<E> {
     }
 }
 
-impl<E: source::SourceExt> fmt::Display for Error<E> {
+impl<E: storage::StorageExt> fmt::Display for Error<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.inner {
             ErrorInner::Io { path: None, err: Some(ref err) } => err.fmt(f),
             ErrorInner::Io { path: None, err: None } => write!(f, "IO error for operation"),
-            ErrorInner::Io { path: Some(ref path), err: Some(ref err) } => write!(
-                f,
-                "IO error for operation on {}: {}",
-                path.display(),
-                err
-            ),
-            ErrorInner::Io { path: Some(ref path), err: None } => write!(
-                f,
-                "IO error for operation on {}",
-                path.display()
-            ),
+            ErrorInner::Io { path: Some(ref path), err: Some(ref err) } => {
+                write!(f, "IO error for operation on {}: {}", path.display(), err)
+            }
+            ErrorInner::Io { path: Some(ref path), err: None } => {
+                write!(f, "IO error for operation on {}", path.display())
+            }
             ErrorInner::Loop { ref ancestor, ref child } => write!(
                 f,
                 "File system loop found: \
@@ -135,7 +107,7 @@ impl<E: source::SourceExt> fmt::Display for Error<E> {
     }
 }
 
-// impl<E: 'static + source::SourceExt> From<Error<E>> for E::FsError {
+// impl<E: 'static + storage::StorageExt> From<Error<E>> for E::Error {
 //     /// Convert the [`Error`] to an [`io::Error`], preserving the original
 //     /// [`Error`] as the ["inner error"]. Note that this also makes the display
 //     /// of the error include the context.
@@ -147,7 +119,7 @@ impl<E: source::SourceExt> fmt::Display for Error<E> {
 //     /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
 //     /// ["inner error"]: https://doc.rust-lang.org/std/io/struct.Error.html#method.into_inner
 //     /// [`into_io_error`]: struct.WalkDir.html#method.into_io_error
-//     fn from(walk_err: Error<E>) -> E::FsError {
+//     fn from(walk_err: Error<E>) -> E::Error {
 //         let kind = match walk_err {
 //             Error { inner: ErrorInner::Io { err: Some(ref err), .. }, .. } => err.kind(),
 //             Error { inner: ErrorInner::Io { err: None, .. }, .. } => {
@@ -157,16 +129,11 @@ impl<E: source::SourceExt> fmt::Display for Error<E> {
 //                 io::ErrorKind::Other
 //             }
 //         };
-//         E::FsError::new(kind, walk_err)
+//         E::Error::new(kind, walk_err)
 //     }
 // }
 
-
-
-
-
-impl<E: source::SourceExt> Error<E> {
-
+impl<E: storage::StorageExt> Error<E> {
     // pub(crate) fn into_inner(self) -> ErrorInner<E> {
     //     self.inner
     // }
@@ -274,7 +241,7 @@ impl<E: source::SourceExt> Error<E> {
     /// [`Error`]: struct.Error.html
     /// [`into_io_error`]: struct.Error.html#method.into_io_error
     /// [impl]: struct.Error.html#impl-From%3CError%3E
-    pub fn io_error(&self) -> Option<&E::FsError> {
+    pub fn io_error(&self) -> Option<&E::Error> {
         match self.inner {
             ErrorInner::Io { ref err, .. } => err.as_ref(),
             ErrorInner::Loop { .. } => None,
@@ -286,28 +253,25 @@ impl<E: source::SourceExt> Error<E> {
     ///
     /// [`io_error`]: struct.Error.html#method.io_error
     /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
-    pub fn into_io_error(self) -> Option<E::FsError> {
+    pub fn into_io_error(self) -> Option<E::Error> {
         match self.inner {
             ErrorInner::Io { err, .. } => err,
             ErrorInner::Loop { .. } => None,
         }
     }
 
-    pub(crate) fn from_inner(
-        inner: ErrorInner<E>,
-        depth: Depth,
-    ) -> Self {
-        Self {
-            inner,
-            depth,
-        }
+    pub(crate) fn from_inner(inner: ErrorInner<E>, depth: Depth) -> Self {
+        Self { inner, depth }
     }
 }
 
-pub fn into_io_err<E: source::SourceExt>( err: E::FsError ) -> ErrorInner<E> {
+pub fn into_io_err<E: storage::StorageExt>(err: E::Error) -> ErrorInner<E> {
     ErrorInner::<E>::from_io(err)
 }
 
-pub fn into_path_err<E: source::SourceExt, P: AsRef<E::Path>>( path: P, err: E::FsError ) -> ErrorInner<E> {
-    ErrorInner::<E>::from_path( path.as_ref().to_path_buf(), err )
+pub fn into_path_err<E: storage::StorageExt, P: AsRef<E::Path>>(
+    path: P,
+    err: E::Error,
+) -> ErrorInner<E> {
+    ErrorInner::<E>::from_path(path.as_ref().to_path_buf(), err)
 }

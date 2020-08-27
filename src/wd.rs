@@ -1,9 +1,8 @@
-use crate::source;
+use crate::storage;
 
-pub use crate::error::{Error, ErrorInner};
-pub use crate::dent::DirEntry;
 use crate::cp::ContentProcessor;
-
+pub use crate::dent::DirEntry;
+pub use crate::error::{Error, ErrorInner};
 
 pub trait IntoSome<T> {
     fn into_some(self) -> Option<T>;
@@ -49,30 +48,32 @@ pub type Depth = usize;
 ///
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
 /// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
-pub type Result<T, E = source::DefaultSourceExt> = ::std::result::Result<T, self::Error<E>>;
+pub type Result<T, E = storage::DefaultStorageExt> = ::std::result::Result<T, self::Error<E>>;
 
-pub type ResultInner<T, E = source::DefaultSourceExt> = ::std::result::Result<T, self::ErrorInner<E>>;
+pub type ResultInner<T, E = storage::DefaultStorageExt> =
+    ::std::result::Result<T, self::ErrorInner<E>>;
 
 /// A DirEntry sorter function.
 pub type FnCmp<E> = Box<
-    dyn FnMut(&<E as source::SourceExt>::FsDirEntry, &<E as source::SourceExt>::FsDirEntry) -> std::cmp::Ordering
+    dyn FnMut(
+            &<E as storage::StorageExt>::DirEntry,
+            &<E as storage::StorageExt>::DirEntry,
+        ) -> std::cmp::Ordering
         + Send
         + Sync
         + 'static,
 >;
 
-pub type DeviceNum = u64;
-
 // Convert FsReadDir.next() to some Option<T>.
 // - Some(T) -- add T to collected vec,
 // - None -- entry must be ignored
-//pub trait FnProcessFsDirEntry<E: source::SourceExt, T>: FnMut(self::Result<DirEntry<E>, E>) -> Option<T> {}
+//pub trait FnProcessFsDirEntry<E: storage::StorageExt, T>: FnMut(self::Result<DirEntry<E>, E>) -> Option<T> {}
 
 /// Follow symlinks and check same_file_system. Also determine is_dir flag.
 /// - Some(Ok((dent, is_dir))) -- normal entry to yielding
 /// - Some(Err(_)) -- some error occured
 /// - None -- entry must be ignored
-//pub type ProcessDirEntry<E: source::SourceExt> = self::Result<(DirEntry<E>, bool), E>
+//pub type ProcessDirEntry<E: storage::StorageExt> = self::Result<(DirEntry<E>, bool), E>
 
 /// A variants for filtering content
 #[derive(Debug, PartialEq, Eq)]
@@ -95,7 +96,7 @@ pub enum ContentOrder {
     /// Yield files first, then dirs
     FilesFirst,
     /// Yield dirs (with theirs content) first, then files
-    DirsFirst
+    DirsFirst,
 }
 
 /// A position in dirs tree
@@ -112,6 +113,8 @@ pub enum Position<BC, EN, ER> {
 }
 
 /// Type of item for Iterators
-pub type WalkDirIteratorItem<E, CP> = Position<(<CP as ContentProcessor<E>>::Item, <CP as ContentProcessor<E>>::Collection), <CP as ContentProcessor<E>>::Item, Error<E>>;
-
-
+pub type WalkDirIteratorItem<E, CP> = Position<
+    (<CP as ContentProcessor<E>>::Item, <CP as ContentProcessor<E>>::Collection),
+    <CP as ContentProcessor<E>>::Item,
+    Error<E>,
+>;

@@ -109,32 +109,32 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md");
 
-mod wd;
-mod rawdent;
-mod dir;
-mod opts;
-mod iter;
 mod classic_iter;
-mod walk;
 mod cp;
 mod dent;
+mod dir;
 mod error;
-pub mod source;
+mod iter;
+mod opts;
+mod rawdent;
+pub mod storage;
 #[cfg(test)]
 mod tests;
+mod walk;
+mod wd;
 
-pub use crate::error::Error;
 pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
+pub use crate::error::Error;
 
-pub use crate::opts::WalkDirBuilder;
-pub use crate::walk::WalkDirIterator;
-pub use crate::iter::{FilterEntry, WalkDirIter};
-pub use crate::classic_iter::{ClassicWalkDirIter};
-pub use crate::wd::{Depth, Position, ContentFilter, ContentOrder, WalkDirIteratorItem};
-pub use crate::source::{SourcePath, SourcePathBuf};
+pub use crate::classic_iter::ClassicWalkDirIter;
 pub use crate::cp::{ContentProcessor, DirEntryContentProcessor};
+pub use crate::iter::{FilterEntry, WalkDirIter};
+pub use crate::opts::WalkDirBuilder;
+pub use crate::storage::{StoragePath, StoragePathBuf};
+pub use crate::walk::WalkDirIterator;
+pub use crate::wd::{ContentFilter, ContentOrder, Depth, Position, WalkDirIteratorItem};
 
 /// Default (classic) WalkDir
-pub type WalkDir = WalkDirBuilder<source::DefaultSourceExt, DirEntryContentProcessor>;
+pub type WalkDir = WalkDirBuilder<storage::DefaultStorageExt, DirEntryContentProcessor>;
