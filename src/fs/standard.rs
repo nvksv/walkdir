@@ -1,5 +1,4 @@
 use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsDirEntry};
-use super::path::FsPaths;
 
 impl FsError for std::io::Error {
     type Inner = Self;
@@ -101,6 +100,12 @@ impl FsDirEntry for StandardDirEntry {
     fn file_type(&self) -> Result<Self::FileType, Self::Error> {
         std::fs::DirEntry::file_type(self)    
     }
+
+    /// Get path of this entry
+    fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error> {
+        std::fs::canonicalize(self.path())
+    }
+
 
     /// Get metadata
     fn metadata(

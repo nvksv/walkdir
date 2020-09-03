@@ -1,13 +1,11 @@
 use crate::error::{into_io_err, into_path_err, ErrorInner};
-use crate::storage;
-use crate::storage::{StorageDirEntry, StorageFileType, StorageMetadata};
+use crate::fs::{FsDirEntry, FsFileType, FsMetadata, FsPath, FsPathBuf};
 use crate::wd::{self, FnCmp, IntoErr, IntoOk, IntoSome};
-use crate::storage::path::{StoragePaths, StoragePath};
 
 #[derive(Debug)]
-enum RawDirEntryKind<P: StoragePaths> {
-    FromPath { path: P::PathBuf },
-    FromFsDirEntry { fsdent: E::DirEntry, path: P::PathBuf },
+enum RawDirEntryKind<DE: FsDirEntry> {
+    FromPath { path: DE::PathBuf },
+    FromFsDirEntry { fsdent: DE },
 }
 
 /// A directory entry.
@@ -37,7 +35,7 @@ enum RawDirEntryKind<P: StoragePaths> {
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
 /// [`DirEntryExt`]: trait.DirEntryExt.html
 #[derive(Debug)]
-pub struct RawDirEntry<E: storage::StorageExt = storage::DefaultStorageExt> {
+pub struct RawDirEntry<DE: FsDirEntry, E> {
     // /// The path as reported by the [`fs::ReadDir`] iterator (even if it's a
     // /// symbolic link).
     // ///
@@ -47,14 +45,14 @@ pub struct RawDirEntry<E: storage::StorageExt = storage::DefaultStorageExt> {
     /// expects to follow symbolic links.
     follow_link: bool,
     /// The file type. Necessary for recursive iteration, so store it.
-    ty: E::FileType,
+    ty: DE::FileType,
     /// Kind of this entry
-    kind: RawDirEntryKind<E>,
+    kind: RawDirEntryKind<DE>,
     /// The source-specific part.
-    ext: E::RawDirEntryExt,
+    ext: E,
 }
 
-impl<E: storage::StorageExt> RawDirEntry<E> {
+impl<DE: FsDirEntry, E> RawDirEntry<DE, E> {
     /// The full path that this entry represents.
     ///
     /// The full path is created by joining the parents of this entry up to the
@@ -70,10 +68,10 @@ impl<E: storage::StorageExt> RawDirEntry<E> {
     /// [`WalkDir::new`]: struct.WalkDir.html#method.new
     /// [`path_is_symlink`]: struct.DirEntry.html#method.path_is_symlink
     /// [`std::fs::read_link`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
-    pub fn path(&self) -> &E::Path {
+    pub fn path(&self) -> &DE::Path {
         match self.kind {
             RawDirEntryKind::FromPath { ref path, .. } => path,
-            RawDirEntryKind::FromFsDirEntry { ref path, .. } => path,
+            RawDirEntryKind::FromFsDirEntry { ref fsdent, .. } => fsdent.path(),
         }
     }
 
@@ -85,7 +83,7 @@ impl<E: storage::StorageExt> RawDirEntry<E> {
     pub fn into_path(self) -> E::PathBuf {
         match self.kind {
             RawDirEntryKind::FromPath { path, .. } => path,
-            RawDirEntryKind::FromFsDirEntry { path, .. } => path,
+            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => fsdent.pathbuf(),
         }
     }
 
@@ -111,13 +109,13 @@ impl<E: storage::StorageExt> RawDirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    pub fn metadata(&self, ctx: &mut E::IteratorExt) -> wd::ResultInner<E::Metadata, E> {
+    pub fn metadata(&self, ctx: &mut DE::Context) -> wd::ResultInner<E::Metadata, E> {
         E::metadata(self.path(), self.follow_link, Some(&self.ext), ctx).map_err(into_io_err)
     }
 
     pub(crate) fn metadata_follow(
         &self,
-        ctx: &mut E::IteratorExt,
+        ctx: &mut DE::Context,
     ) -> wd::ResultInner<E::Metadata, E> {
         E::metadata(self.path(), true, None, ctx).map_err(into_io_err)
     }
@@ -186,7 +184,7 @@ impl<E: storage::StorageExt> RawDirEntry<E> {
 
     fn from_path_internal<P: AsRef<E::Path> + Copy>(
         path: P,
-        ctx: &mut E::IteratorExt,
+        ctx: &mut DE::Context,
         follow_link: bool,
     ) -> wd::ResultInner<Self, E> {
         let md = E::metadata(path, follow_link, None, ctx).map_err(|e| into_path_err(path, e))?;
@@ -200,18 +198,18 @@ impl<E: storage::StorageExt> RawDirEntry<E> {
 
     pub fn from_path<P: AsRef<E::Path> + Copy>(
         path: P,
-        ctx: &mut E::IteratorExt,
+        ctx: &mut DE::Context,
     ) -> wd::ResultInner<ReadDir<E>, E> {
         let rawdent = Self::from_path_internal(path, ctx, false)?;
         ReadDir::<E>::new_once(rawdent).into_ok()
     }
 
-    pub fn read_dir(&self, ctx: &mut E::IteratorExt) -> wd::ResultInner<ReadDir<E>, E> {
+    pub fn read_dir(&self, ctx: &mut DE::Context) -> wd::ResultInner<ReadDir<E>, E> {
         let rd = E::read_dir(self.path(), &self.ext, ctx).map_err(into_io_err)?;
         ReadDir::<E>::new(rd).into_ok()
     }
 
-    pub fn follow(&self, ctx: &mut E::IteratorExt) -> wd::ResultInner<Self, E> {
+    pub fn follow(&self, ctx: &mut DE::Context) -> wd::ResultInner<Self, E> {
         Self::from_path_internal(self.path(), ctx, true)
     }
 
@@ -234,7 +232,7 @@ impl<E: storage::StorageExt> RawDirEntry<E> {
 
     pub fn clone_dent_parts(
         &self,
-        ctx: &mut E::IteratorExt,
+        ctx: &mut DE::Context,
     ) -> (E::PathBuf, E::FileType, bool, E::DirEntryExt) {
         let path = self.path().to_path_buf();
         let dent_ext = E::dent_new(&path, &self.ext, ctx);

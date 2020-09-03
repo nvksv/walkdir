@@ -9,48 +9,7 @@ use crate::error;
 #[derive(Debug, Clone, Default)]
 pub struct Nil {}
 
-impl StoragePath<std::path::PathBuf> for std::path::Path {
-    #[inline(always)]
-    fn to_path_buf(&self) -> std::path::PathBuf {
-        self.to_path_buf()
-    }
-}
 
-impl StoragePath<std::string::String> for str {
-    #[inline(always)]
-    fn to_path_buf(&self) -> std::string::String {
-        self.to_string()
-    }
-}
-
-impl<'s> StoragePathBuf<'s> for std::path::PathBuf {
-    type Display = std::path::Display<'s>;
-
-    #[inline(always)]
-    fn display(&'s self) -> Self::Display {
-        std::path::Path::display(self)
-    }
-}
-
-pub struct StringDisplay<'s> {
-    inner: &'s std::string::String,
-}
-
-impl<'s> std::fmt::Display for StringDisplay<'s> {
-    #[inline(always)]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.inner, f)
-    }
-}
-
-impl<'s> StoragePathBuf<'s> for std::string::String {
-    type Display = StringDisplay<'s>;
-
-    #[inline(always)]
-    fn display(&'s self) -> Self::Display {
-        StringDisplay { inner: self }
-    }
-}
 
 impl<E> StorageDirEntry<E> for std::fs::DirEntry
 where

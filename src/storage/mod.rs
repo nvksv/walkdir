@@ -2,8 +2,9 @@
 Source-specific extensions for directory walking
 */
 use crate::error;
+use crate::fs::{FsPath, FsPathBuf, FsDirEntry, FsError};
 
-mod path;
+mod rawdent;
 mod standard;
 #[cfg(unix)]
 mod unix;
@@ -60,21 +61,12 @@ pub trait StorageExt: fmt::Debug + Clone + Send + Sync + Sized {
 
     /// io::Error
     type Error: StorageError<Self>;
-    /// Wrapper for fs::DirEntry
-    type DirEntry: StorageDirEntry<Self>;
-    /// Wrapper for fs::ReadDir
-    type ReadDir: StorageReadDir<Self>;
-    /// fs::Metadata
-    type Metadata: StorageMetadata<Self>;
-    /// fs::FileType
-    type FileType: StorageFileType;
-    /// ffi::OsStr
-    type FileName: ?Sized;
 
-    /// std::path::Path
-    type Path: ?Sized + Ord + StoragePath<Self::PathBuf> + AsRef<Self::Path>;
-    /// std::path::PathBuf
-    type PathBuf: ;
+    type Path: FsPath + ?Sized;
+    type PathBuf: for<'p> FsPathBuf<'p>;
+
+    /// Wrapper for fs::DirEntry
+    type DirEntry: FsDirEntry<Path = Self::Path, PathBuf = Self::PathBuf>;
 
     /// Handle to determine the sameness of two dirs
     type SameFileHandle: Eq;
@@ -82,7 +74,7 @@ pub trait StorageExt: fmt::Debug + Clone + Send + Sync + Sized {
     type DeviceNum: Eq + Clone + Copy;
 
     /// Make new builder
-    fn builder_new<P: AsRef<Self::Path>>(root: P, ctx: Option<Self::BuilderCtx>) -> Self;
+    fn builder_new<P: AsRef<Self::Path>>(root: P, ctx: Self::BuilderCtx) -> Self;
 
     /// Make new ancestor
     fn ancestor_new<P: AsRef<Self::Path>>(

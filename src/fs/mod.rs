@@ -1,8 +1,7 @@
 mod path;
-mod rawdent;
 mod standard;
 
-use path::{FsPath, FsPathBuf};
+pub use path::{FsPath, FsPathBuf};
 
 /// Functions for FsMetadata
 pub trait FsError: 'static + std::error::Error + std::fmt::Debug {
@@ -16,7 +15,7 @@ pub trait FsError: 'static + std::error::Error + std::fmt::Debug {
 pub trait FsDirEntry: std::fmt::Debug + Sized {
     type Context;
 
-    type Path: FsPath;
+    type Path: FsPath + ?Sized;
     type PathBuf: for<'p> FsPathBuf<'p>;
 
     type Error: FsError;
@@ -28,9 +27,12 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
     fn path(&self) -> &Self::Path;
     /// Get path of this entry
     fn pathbuf(&self) -> Self::PathBuf;
+    /// Get canonical path of this entry
+    fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error>;
     
     /// Get type of this entry
     fn file_type(&self) -> Result<Self::FileType, Self::Error>;
+
     /// Get metadata
     fn metadata(
         &self,
