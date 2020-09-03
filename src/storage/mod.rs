@@ -3,6 +3,7 @@ Source-specific extensions for directory walking
 */
 use crate::error;
 
+mod path;
 mod standard;
 #[cfg(unix)]
 mod unix;
@@ -32,50 +33,6 @@ use std::fmt;
 use std::marker::Send;
 use std::ops::Deref;
 
-/// Functions for StorageExt::Path
-pub trait StoragePath<PathBuf> {
-    /// Copy to owned
-    fn to_path_buf(&self) -> PathBuf;
-}
-
-/// Functions for StorageExt::PathBuf
-pub trait StoragePathBuf<'s> {
-    /// Intermediate object
-    type Display: 's + fmt::Display;
-
-    /// Create intermediate object which can Display
-    fn display(&'s self) -> Self::Display;
-}
-
-/// Functions for FsDirEntry
-pub trait StorageDirEntry<E: StorageExt>: fmt::Debug + Sized {
-    /// Get path of this entry
-    fn path(&self) -> E::PathBuf;
-    /// Get type of this entry
-    fn file_type(&self) -> Result<E::FileType, E::Error>;
-}
-
-/// Functions for FsFileType
-pub trait StorageFileType: Clone + Copy + fmt::Debug {
-    /// Is it dir?
-    fn is_dir(&self) -> bool;
-    /// Is it file
-    fn is_file(&self) -> bool;
-    /// Is it symlink
-    fn is_symlink(&self) -> bool;
-}
-
-/// Functions for FsMetadata
-pub trait StorageMetadata<E: StorageExt>: fmt::Debug {
-    /// Get type of this entry
-    fn file_type(&self) -> E::FileType;
-}
-
-/// Functions for FsReadDir
-pub trait StorageReadDir<E: StorageExt>:
-    fmt::Debug + Iterator<Item = Result<E::DirEntry, E::Error>>
-{
-}
 
 /// Functions for FsMetadata
 pub trait StorageError<E: StorageExt>: 'static + std::error::Error + fmt::Debug {
@@ -117,13 +74,7 @@ pub trait StorageExt: fmt::Debug + Clone + Send + Sync + Sized {
     /// std::path::Path
     type Path: ?Sized + Ord + StoragePath<Self::PathBuf> + AsRef<Self::Path>;
     /// std::path::PathBuf
-    type PathBuf: fmt::Debug
-        + Clone
-        + Send
-        + Sync
-        + Deref<Target = Self::Path>
-        + AsRef<Self::Path>
-        + for<'s> StoragePathBuf<'s>;
+    type PathBuf: ;
 
     /// Handle to determine the sameness of two dirs
     type SameFileHandle: Eq;

@@ -1,12 +1,13 @@
 use crate::error::{into_io_err, into_path_err, ErrorInner};
 use crate::storage;
-use crate::storage::{StorageDirEntry, StorageFileType, StorageMetadata, StoragePath};
+use crate::storage::{StorageDirEntry, StorageFileType, StorageMetadata};
 use crate::wd::{self, FnCmp, IntoErr, IntoOk, IntoSome};
+use crate::storage::path::{StoragePaths, StoragePath};
 
 #[derive(Debug)]
-enum RawDirEntryKind<E: storage::StorageExt> {
-    FromPath { path: E::PathBuf },
-    FromFsDirEntry { fsdent: E::DirEntry, path: E::PathBuf },
+enum RawDirEntryKind<P: StoragePaths> {
+    FromPath { path: P::PathBuf },
+    FromFsDirEntry { fsdent: E::DirEntry, path: P::PathBuf },
 }
 
 /// A directory entry.
