@@ -21,7 +21,7 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
 
     type Error:    FsError;
     type FileType: FsFileType;
-    type Metadata: FsMetadata<Filetype=Self::FileType>;
+    type Metadata: FsMetadata<FileType=Self::FileType>;
     type ReadDir:  FsReadDir<DirEntry=Self, Error=Self::Error>;
     type DirFingerprint: FsDirFingerprint;
     type DeviceNum: Eq + Clone + Copy;
@@ -85,22 +85,27 @@ pub trait FsMetadata: std::fmt::Debug {
 
 /// Functions for FsReadDir
 pub trait FsReadDir: std::fmt::Debug {
-    type Error;
+    type Error: FsError;
     type DirEntry: FsDirEntry<Error=Self::Error>;
 
-    fn next_fsentry<E>(&self) -> Option<Result<Self::DirEntry, E>>;
+//    fn next_fsentry<E>(&self) -> Option<Result<Self::DirEntry, E>>;
 }
 
-impl<RD: FsReadDir> Iterator for RD {
-    type Item = Result<Self::DirEntry, Self::Error>;
+// #[derive(Debug)]
+// struct FsReadDirIterator<T: FsReadDir> {
+//     inner: T,
+// }
+// impl<T> Iterator for FsReadDirIterator<T> where T: FsReadDir {
+//     type Item = Result<T::DirEntry, T::Error>;
 
-    fn next(&self) -> Option<Self::Item> {
-        match self.next_fsentry() {
-            Some(Err(e)) => Some(Err(Self::DirEntry::Error::from_fserror(e))),
-            v @ _ => v,
-        }
-    }
-}
+//     fn next(&self) -> Option<Self::Item> {
+//         match self.inner.next_fsentry() {
+//             Some(Ok(v))     => Some(Ok(v)),
+//             Some(Err(e))    => Some(Err(<T::Error::from_fserror(e))),
+//             None            => None,
+//         }
+//     }
+// }
 
 pub trait FsDirFingerprint: std::fmt::Debug {
     type Path: FsPath + ?Sized;

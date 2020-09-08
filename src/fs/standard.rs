@@ -43,7 +43,7 @@ pub struct StandardReadDir {
 }
 
 impl StandardReadDir {
-    fn inner(&self) -> &std::fs::ReadDir {
+    pub fn inner(&self) -> &std::fs::ReadDir {
         &self.inner
     }
 }

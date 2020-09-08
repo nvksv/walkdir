@@ -123,18 +123,18 @@ mod fs;
 // mod walk;
 mod wd;
 
-pub use crate::dent::DirEntry;
-#[cfg(unix)]
-pub use crate::dent::DirEntryExt;
-pub use crate::error::Error;
+// pub use crate::dent::DirEntry;
+// #[cfg(unix)]
+// pub use crate::dent::DirEntryExt;
+// pub use crate::error::Error;
 
-pub use crate::classic_iter::ClassicWalkDirIter;
-pub use crate::cp::{ContentProcessor, DirEntryContentProcessor};
-pub use crate::iter::{FilterEntry, WalkDirIter};
-pub use crate::opts::WalkDirBuilder;
-pub use crate::storage::{StoragePath, StoragePathBuf};
-pub use crate::walk::WalkDirIterator;
-pub use crate::wd::{ContentFilter, ContentOrder, Depth, Position, WalkDirIteratorItem};
+// pub use crate::classic_iter::ClassicWalkDirIter;
+// pub use crate::cp::{ContentProcessor, DirEntryContentProcessor};
+// pub use crate::iter::{FilterEntry, WalkDirIter};
+// pub use crate::opts::WalkDirBuilder;
+// pub use crate::storage::{StoragePath, StoragePathBuf};
+// pub use crate::walk::WalkDirIterator;
+// pub use crate::wd::{ContentFilter, ContentOrder, Depth, Position, WalkDirIteratorItem};
 
-/// Default (classic) WalkDir
-pub type WalkDir = WalkDirBuilder<storage::DefaultStorageExt, DirEntryContentProcessor>;
+// /// Default (classic) WalkDir
+// pub type WalkDir = WalkDirBuilder<storage::DefaultStorageExt, DirEntryContentProcessor>;

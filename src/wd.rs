@@ -1,8 +1,8 @@
-use crate::storage;
+// use crate::storage;
 
-use crate::cp::ContentProcessor;
-pub use crate::dent::DirEntry;
-pub use crate::error::{Error, ErrorInner};
+// use crate::cp::ContentProcessor;
+// pub use crate::dent::DirEntry;
+// pub use crate::error::{Error, ErrorInner};
 
 pub trait IntoSome<T> {
     fn into_some(self) -> Option<T>;
@@ -37,32 +37,32 @@ impl<T, E> IntoErr<T, E> for E {
 /// Type of depth
 pub type Depth = usize;
 
-/// A result type for walkdir operations.
-///
-/// Note that this result type embeds the error type in this crate. This
-/// is only useful if you care about the additional information provided by
-/// the error (such as the path associated with the error or whether a loop
-/// was dectected). If you want things to Just Work, then you can use
-/// [`io::Result`] instead since the error type in this package will
-/// automatically convert to an [`io::Result`] when using the [`try!`] macro.
-///
-/// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
-/// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
-pub type Result<T, E = storage::DefaultStorageExt> = ::std::result::Result<T, self::Error<E>>;
+// /// A result type for walkdir operations.
+// ///
+// /// Note that this result type embeds the error type in this crate. This
+// /// is only useful if you care about the additional information provided by
+// /// the error (such as the path associated with the error or whether a loop
+// /// was dectected). If you want things to Just Work, then you can use
+// /// [`io::Result`] instead since the error type in this package will
+// /// automatically convert to an [`io::Result`] when using the [`try!`] macro.
+// ///
+// /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
+// /// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
+// pub type Result<T, E = storage::DefaultStorageExt> = ::std::result::Result<T, self::Error<E>>;
 
-pub type ResultInner<T, E = storage::DefaultStorageExt> =
-    ::std::result::Result<T, self::ErrorInner<E>>;
+// pub type ResultInner<T, E = storage::DefaultStorageExt> =
+//     ::std::result::Result<T, self::ErrorInner<E>>;
 
-/// A DirEntry sorter function.
-pub type FnCmp<E> = Box<
-    dyn FnMut(
-            &<E as storage::StorageExt>::DirEntry,
-            &<E as storage::StorageExt>::DirEntry,
-        ) -> std::cmp::Ordering
-        + Send
-        + Sync
-        + 'static,
->;
+// /// A DirEntry sorter function.
+// pub type FnCmp<E> = Box<
+//     dyn FnMut(
+//             &<E as storage::StorageExt>::DirEntry,
+//             &<E as storage::StorageExt>::DirEntry,
+//         ) -> std::cmp::Ordering
+//         + Send
+//         + Sync
+//         + 'static,
+// >;
 
 // Convert FsReadDir.next() to some Option<T>.
 // - Some(T) -- add T to collected vec,
@@ -112,9 +112,9 @@ pub enum Position<BC, EN, ER> {
     AfterContent,
 }
 
-/// Type of item for Iterators
-pub type WalkDirIteratorItem<E, CP> = Position<
-    (<CP as ContentProcessor<E>>::Item, <CP as ContentProcessor<E>>::Collection),
-    <CP as ContentProcessor<E>>::Item,
-    Error<E>,
->;
+// /// Type of item for Iterators
+// pub type WalkDirIteratorItem<E, CP> = Position<
+//     (<CP as ContentProcessor<E>>::Item, <CP as ContentProcessor<E>>::Collection),
+//     <CP as ContentProcessor<E>>::Item,
+//     Error<E>,
+// >;
