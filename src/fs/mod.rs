@@ -1,5 +1,6 @@
 mod path;
 mod standard;
+mod windows;
 
 pub use path::{FsPath, FsPathBuf};
 
@@ -18,10 +19,12 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
     type Path: FsPath + ?Sized;
     type PathBuf: for<'p> FsPathBuf<'p>;
 
-    type Error: FsError;
+    type Error:    FsError;
     type FileType: FsFileType;
     type Metadata: FsMetadata<Filetype=Self::FileType>;
-    type ReadDir: FsReadDir<DirEntry=Self, Error=Self::Error>;
+    type ReadDir:  FsReadDir<DirEntry=Self, Error=Self::Error>;
+    type DirFingerprint: FsDirFingerprint;
+    type DeviceNum: Eq + Clone + Copy;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path;
@@ -51,6 +54,15 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
         path: &Self::Path,
         ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error>;
+
+    /// Return the unique handle
+    fn fingerprint(
+        &self,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::DirFingerprint, Self::Error>;
+
+    /// device_num
+    fn device_num(&self) -> Result<Self::DeviceNum, Self::Error>;
 }
 
 /// Functions for FsFileType
@@ -88,4 +100,10 @@ impl<RD: FsReadDir> Iterator for RD {
             v @ _ => v,
         }
     }
+}
+
+pub trait FsDirFingerprint: std::fmt::Debug {
+    type Path: FsPath + ?Sized;
+
+    fn is_same(&self, rhs: &Self) -> bool;
 }

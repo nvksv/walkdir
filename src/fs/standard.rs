@@ -1,4 +1,7 @@
-use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsDirEntry};
+use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsDirEntry, FsDirFingerprint};
+use crate::wd::IntoOk;
+
+use same_file;
 
 impl FsError for std::io::Error {
     type Inner = Self;
@@ -77,15 +80,17 @@ impl StandardDirEntry {
 
 /// Functions for FsDirEntry
 impl FsDirEntry for StandardDirEntry {
-    type Context    = ();
+    type Context        = ();
 
-    type Path       = std::path::Path;
-    type PathBuf    = std::path::PathBuf;
+    type Path           = std::path::Path;
+    type PathBuf        = std::path::PathBuf;
 
-    type Error      = std::io::Error;
-    type FileType   = std::fs::FileType;
-    type Metadata   = std::fs::Metadata;
-    type ReadDir    = StandardReadDir;
+    type Error          = std::io::Error;
+    type FileType       = std::fs::FileType;
+    type Metadata       = std::fs::Metadata;
+    type ReadDir        = StandardReadDir;
+    type DirFingerprint = StandardDirFingerprint;
+    type DeviceNum      = ();
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path {
@@ -139,5 +144,30 @@ impl FsDirEntry for StandardDirEntry {
             inner: std::fs::read_dir(path),
         }
     }
+
+    /// Return the unique handle
+    fn fingerprint(
+        &self,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::DirFingerprint, Self::Error> {
+        StandardDirFingerprint {
+            handle: same_file::Handle::from_path(self.path())?
+        }.into_ok()
+    }
+
+    /// device_num
+    fn device_num(&self) -> Result<Self::DeviceNum, Self::Error> {
+        ().into_ok()
+    }
 }
 
+#[derive(Debug)]
+pub struct StandardDirFingerprint {
+    handle: same_file::Handle,
+}
+
+impl FsDirFingerprint for StandardDirFingerprint {
+    fn is_same(&self, rhs: &Self) -> bool {
+        self.handle == rhs.handle
+    }
+}

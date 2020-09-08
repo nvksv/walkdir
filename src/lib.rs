@@ -110,17 +110,17 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 doc_comment::doctest!("../README.md");
 
 mod fs;
-mod classic_iter;
-mod cp;
-mod dent;
-mod dir;
-mod error;
-mod iter;
-mod opts;
-pub mod storage;
-#[cfg(test)]
-mod tests;
-mod walk;
+// mod classic_iter;
+// mod cp;
+// mod dent;
+// mod dir;
+// mod error;
+// mod iter;
+// mod opts;
+// pub mod storage;
+// #[cfg(test)]
+// mod tests;
+// mod walk;
 mod wd;
 
 pub use crate::dent::DirEntry;

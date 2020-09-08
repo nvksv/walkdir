@@ -1,4 +1,5 @@
-use crate::storage::{util::Nil, StorageExt};
+use crate::fs::standard::StandardDirEntry;
+use crate::fs::{FsDirEntry};
 use crate::wd::IntoOk;
 
 use std::fmt::Debug;
@@ -8,29 +9,6 @@ use std::path;
 
 use same_file;
 
-#[derive(Debug)]
-pub struct AncestorWindowsExt {
-    /// An open file to this ancesor. This is only used on Windows where
-    /// opening a file handle appears to be quite expensive, so we choose to
-    /// cache it. This comes at the cost of not respecting the file descriptor
-    /// limit set by the user.
-    handle: same_file::Handle,
-}
-
-#[derive(Debug, Clone)]
-pub struct DirEntryWindowsExt {
-    /// The underlying metadata (Windows only). We store this on Windows
-    /// because this comes for free while reading a directory.
-    ///
-    /// We use this to determine whether an entry is a directory or not, which
-    /// works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    metadata: fs::Metadata,
-}
-
-/// Windows-specific extensions
-#[derive(Debug, Clone)]
-pub struct WalkDirWindowsExt {}
 
 impl StorageExt for WalkDirWindowsExt {
     type BuilderCtx = Nil;
@@ -171,5 +149,120 @@ impl StorageExt for WalkDirWindowsExt {
 
     fn get_file_name(path: &Self::Path) -> &Self::FileName {
         path.file_name().unwrap_or_else(|| path.as_os_str())
+    }
+}
+
+pub struct WindowsDirEntry {
+    standard: StandardDirEntry,
+    /// The underlying metadata (Windows only). We store this on Windows
+    /// because this comes for free while reading a directory.
+    ///
+    /// We use this to determine whether an entry is a directory or not, which
+    /// works around a bug in Rust's standard library:
+    /// https://github.com/rust-lang/rust/issues/46484
+    metadata: fs::Metadata,
+}
+
+impl WindowsDirEntry {
+    fn inner(&self) -> &std::fs::DirEntry {
+        self.standard.inner()
+    }
+
+    fn standard(&self) -> &StandardDirEntry {
+        &self.standard
+    }
+}
+
+/// Functions for FsDirEntry
+impl FsDirEntry for WindowsDirEntry {
+    type Context        = StandardDirEntry::Context;
+
+    type Path           = StandardDirEntry::Path;
+    type PathBuf        = StandardDirEntry::PathBuf;
+
+    type Error          = StandardDirEntry::Error;
+    type FileType       = StandardDirEntry::FileType;
+    type Metadata       = std::fs::Metadata;
+    type ReadDir        = StandardReadDir;
+    type DirFingerprint = StandardDirEntry::DirFingerprint;
+    type DeviceNum      = StandardDirEntry::DeviceNum;
+
+    /// Get path of this entry
+    fn path(&self) -> &Self::Path {
+        &self.pathbuf    
+    }
+    /// Get path of this entry
+    fn pathbuf(&self) -> Self::PathBuf {
+        self.pathbuf.clone()
+    }
+
+    /// Get type of this entry
+    fn file_type(&self) -> Result<Self::FileType, Self::Error> {
+        std::fs::DirEntry::file_type(self)    
+    }
+
+    /// Get path of this entry
+    fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error> {
+        std::fs::canonicalize(self.path())
+    }
+
+
+    /// Get metadata
+    fn metadata(
+        &self,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::Metadata, Self::Error> {
+        if follow_link {
+            std::fs::metadata(&self.pathbuf)    
+        } else {
+            std::fs::symlink_metadata(&self.pathbuf)    
+        }
+    }
+
+    /// Read dir
+    fn read_dir(
+        &self,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::ReadDir, Self::Error> {
+        StandardReadDir {
+            inner: std::fs::read_dir(&self.pathbuf),
+        }
+    }
+
+    /// Read dir
+    fn read_dir_from_path(
+        path: &Self::Path,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::ReadDir, Self::Error> {
+        StandardReadDir {
+            inner: std::fs::read_dir(path),
+        }
+    }
+
+    /// Return the unique handle
+    fn fingerprint(
+        &self,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::DirFingerprint, Self::Error> {
+        StandardDirFingerprint {
+            handle: same_file::Handle::from_path(self.path())?
+        }.into_ok()
+    }
+
+    /// device_num
+    fn device_num(&self) -> Result<Self::DeviceNum, Self::Error> {
+        ().into_ok()
+    }
+}
+
+#[derive(Debug)]
+struct WindowsDirFingerprint {
+    handle: same_file::Handle,
+}
+
+impl FsDirFingerprint for WindowsDirFingerprint {
+    fn is_same(&self, rhs: &Self) -> bool {
+        self.handle == rhs.handle
     }
 }
