@@ -152,35 +152,44 @@ use same_file;
 //     }
 // }
 
+#[derive(Debug)]
 pub struct WindowsReadDir {
     standard: StandardReadDir,
 }
 
 impl WindowsReadDir {
-    fn inner(&self) -> &std::fs::ReadDir {
-        self.standard().inner()
+    fn standard(&self) -> &std::fs::ReadDir {
+        self.standard()
     }
-    fn standard(&self) -> &StandardReadDir {
-        &self.standard
-    }
+    // fn standard(&self) -> &StandardReadDir {
+    //     &self.standard
+    // }
 }
 
 /// Functions for FsReadDir
 impl FsReadDir for WindowsReadDir {
+    type Inner      = StandardReadDir;
     type Error      = std::io::Error;
     type DirEntry   = WindowsDirEntry;
-}
 
-impl Iterator for WindowsReadDir {
-    type Item = WindowsDirEntry;
+    fn inner_mut(&mut self) -> &mut Self::Inner {
+        &mut self.standard
+    }
 
-    fn next(&self) -> Option<Self::Item> {
-        WindowsDirEntry {
-            standard: self.standard().next()?,
-        }
+    fn process_inner_entry(&mut self, inner_entry: StandardDirEntry) -> Result<Self::DirEntry, Self::Error> {
+        Self::DirEntry::from_inner(inner_entry).into_ok()    
     }
 }
 
+impl Iterator for WindowsReadDir {
+    type Item = Result<WindowsDirEntry, std::io::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_fsentry()
+    }
+}
+
+#[derive(Debug)]
 pub struct WindowsDirEntry {
     standard: StandardDirEntry,
     /// The underlying metadata (Windows only). We store this on Windows
@@ -199,6 +208,13 @@ impl WindowsDirEntry {
 
     pub fn standard(&self) -> &StandardDirEntry {
         &self.standard
+    }
+
+    pub fn from_inner(inner: StandardDirEntry) -> Self {
+        let pathbuf = inner.path().to_path_buf();
+        Self {
+            standard: StandardDirEntry::from_inner(inner),
+        }
     }
 }
 

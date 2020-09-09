@@ -1,4 +1,4 @@
-use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsDirEntry, FsDirFingerprint};
+use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsReadDirIterator, FsDirEntry, FsDirFingerprint};
 use crate::wd::IntoOk;
 
 use same_file;
@@ -7,8 +7,8 @@ impl FsError for std::io::Error {
     type Inner = Self;
 
     /// Creates a new I/O error from a known kind of error as well as an arbitrary error payload.
-    fn from_fserror(error: Self::Inner) -> Self {
-        error
+    fn from_inner(inner: Self::Inner) -> Self {
+        inner
     }
 }
 
@@ -38,6 +38,16 @@ impl FsMetadata for std::fs::Metadata {
     }
 }
 
+impl FsReadDirIterator for std::fs::ReadDir {
+    type Error      = std::io::Error;
+    type DirEntry   = std::fs::DirEntry;
+
+    fn next_entry(&mut self) -> Option<Result<Self::DirEntry, Self::Error>> {
+        self.next()
+    }
+}
+
+#[derive(Debug)]
 pub struct StandardReadDir {
     inner:      std::fs::ReadDir,
 }
@@ -50,31 +60,44 @@ impl StandardReadDir {
 
 /// Functions for FsReadDir
 impl FsReadDir for StandardReadDir {
+    type Inner      = std::fs::ReadDir;
     type Error      = std::io::Error;
     type DirEntry   = StandardDirEntry;
-}
 
-impl Iterator for StandardReadDir {
-    type Item = StandardDirEntry;
+    fn inner_mut(&mut self) -> &mut Self::Inner {
+        &mut self.inner
+    }
 
-    fn next(&self) -> Option<Self::Item> {
-        let dent = self.inner.next()?;
-        let pathbuf = dent.path();
-        StandardDirEntry {
-            pathbuf,
-            inner: dent,
-        }
+    fn process_inner_entry(&mut self, inner_entry: std::fs::DirEntry) -> Result<Self::DirEntry, Self::Error> {
+        Self::DirEntry::from_inner(inner_entry).into_ok()    
     }
 }
 
+impl Iterator for StandardReadDir {
+    type Item = Result<StandardDirEntry, std::io::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_fsentry()
+    }
+}
+
+#[derive(Debug)]
 pub struct StandardDirEntry {
     pathbuf:    std::path::PathBuf,
     inner:      std::fs::DirEntry,
 }
 
 impl StandardDirEntry {
-    fn inner(&self) -> &std::fs::DirEntry {
+    pub fn inner(&self) -> &std::fs::DirEntry {
         &self.inner
+    }
+
+    pub fn from_inner(inner: std::fs::DirEntry) -> Self {
+        let pathbuf = inner.path().to_path_buf();
+        Self {
+            pathbuf,
+            inner
+        }
     }
 }
 
@@ -103,7 +126,7 @@ impl FsDirEntry for StandardDirEntry {
 
     /// Get type of this entry
     fn file_type(&self) -> Result<Self::FileType, Self::Error> {
-        std::fs::DirEntry::file_type(self)    
+        std::fs::DirEntry::file_type(&self.inner)    
     }
 
     /// Get path of this entry
@@ -131,8 +154,8 @@ impl FsDirEntry for StandardDirEntry {
         ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error> {
         StandardReadDir {
-            inner: std::fs::read_dir(&self.pathbuf),
-        }
+            inner: std::fs::read_dir(self.path())?,
+        }.into_ok()
     }
 
     /// Read dir
@@ -141,8 +164,8 @@ impl FsDirEntry for StandardDirEntry {
         ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error> {
         StandardReadDir {
-            inner: std::fs::read_dir(path),
-        }
+            inner: std::fs::read_dir(path)?,
+        }.into_ok()
     }
 
     /// Return the unique handle

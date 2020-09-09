@@ -28,7 +28,7 @@ pub trait FsPathBuf<'s>: Sized
 }
 
 pub trait FsFileName: FsPath {
-    type FileName;
+    type FileName: ?Sized;
 
     /// file_name
     fn file_name(&self) -> &Self::FileName;
