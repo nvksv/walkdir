@@ -92,12 +92,12 @@ impl StandardDirEntry {
         &self.inner
     }
 
-    pub fn from_inner(inner: std::fs::DirEntry) -> Self {
+    pub fn from_inner(inner: std::fs::DirEntry) -> Result<Self, std::io::Error> {
         let pathbuf = inner.path().to_path_buf();
         Self {
             pathbuf,
             inner
-        }
+        }.into_ok()
     }
 }
 

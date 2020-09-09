@@ -177,7 +177,7 @@ impl FsReadDir for WindowsReadDir {
     }
 
     fn process_inner_entry(&mut self, inner_entry: StandardDirEntry) -> Result<Self::DirEntry, Self::Error> {
-        Self::DirEntry::from_inner(inner_entry).into_ok()    
+        Self::DirEntry::from_inner(inner_entry)
     }
 }
 
@@ -210,11 +210,12 @@ impl WindowsDirEntry {
         &self.standard
     }
 
-    pub fn from_inner(inner: StandardDirEntry) -> Self {
-        let pathbuf = inner.path().to_path_buf();
+    pub fn from_inner(inner: StandardDirEntry) -> Result<Self, std::io::Error> {
+        let metadata = inner.inner().metadata()?;
         Self {
-            standard: StandardDirEntry::from_inner(inner),
-        }
+            metadata,
+            standard: inner,
+        }.into_ok()
     }
 }
 
@@ -234,21 +235,21 @@ impl FsDirEntry for WindowsDirEntry {
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path {
-        &self.pathbuf    
+        self.standard.path()
     }
     /// Get path of this entry
     fn pathbuf(&self) -> Self::PathBuf {
-        self.pathbuf.clone()
+        self.standard.pathbuf()
     }
 
     /// Get type of this entry
     fn file_type(&self) -> Result<Self::FileType, Self::Error> {
-        std::fs::DirEntry::file_type(self)    
+        self.standard.file_type()
     }
 
     /// Get path of this entry
     fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error> {
-        std::fs::canonicalize(self.path())
+        self.standard.canonicalize()
     }
 
 
