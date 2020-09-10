@@ -72,8 +72,9 @@ pub trait FsDirFingerprint: std::fmt::Debug {
 pub trait FsDirEntry: std::fmt::Debug + Sized {
     type Context;
 
-    type Path: FsPath + ?Sized;
-    type PathBuf: for<'p> FsPathBuf<'p>;
+    type Path: FsPath<PathBuf = Self::PathBuf, FileName = Self::FileName> + ?Sized;
+    type PathBuf: for<'p> FsPathBuf<'p, Path = Self::Path>;
+    type FileName: Sized;
 
     type Error:    FsError;
     type FileType: FsFileType;
@@ -88,13 +89,29 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
     fn pathbuf(&self) -> Self::PathBuf;
     /// Get canonical path of this entry
     fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error>;
-    
+    /// Get bare name of this entry withot any leading path components
+    fn file_name(&self) -> Self::FileName;
+
     /// Get type of this entry
-    fn file_type(&self) -> Result<Self::FileType, Self::Error>;
+    fn file_type(&self) -> Self::FileType;
+
+    fn is_dir(&self) -> bool;
+    fn metadata_is_dir(metadata: &Self::Metadata) -> bool;
+
+    fn file_name_from_path(
+        path: &Self::Path,
+    ) -> Result<Self::FileName, Self::Error>;
 
     /// Get metadata
     fn metadata(
         &self,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::Metadata, Self::Error>;
+
+    /// Get metadata
+    fn metadata_from_path(
+        path: &Self::Path,
         follow_link: bool,
         ctx: &mut Self::Context,
     ) -> Result<Self::Metadata, Self::Error>;

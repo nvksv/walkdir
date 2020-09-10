@@ -1,7 +1,7 @@
 use std::fmt;
 
-use crate::storage;
-use crate::storage::{StorageDirEntry, StoragePath, StoragePathBuf};
+use crate::fs;
+// use crate::storage::{StorageDirEntry, StoragePath, StoragePathBuf};
 use crate::wd::Depth;
 
 /// An error produced by recursively walking a directory.
@@ -24,24 +24,24 @@ use crate::wd::Depth;
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
 /// [impl]: struct.Error.html#impl-From%3CError%3E
 #[derive(Debug)]
-pub struct Error<E: storage::StorageExt = storage::DefaultStorageExt> {
+pub struct Error<E: fs::FsDirEntry> {
     inner: ErrorInner<E>,
     depth: Depth,
 }
 
 #[derive(Debug)]
-pub enum ErrorInner<E: storage::StorageExt> {
+pub enum ErrorInner<E: fs::FsDirEntry> {
     Io { path: Option<E::PathBuf>, err: Option<E::Error> },
     Loop { ancestor: E::PathBuf, child: E::PathBuf },
 }
 
-impl<E: storage::StorageExt> ErrorInner<E> {
+impl<E: fs::FsDirEntry> ErrorInner<E> {
     pub(crate) fn from_path(pb: E::PathBuf, err: E::Error) -> Self {
         Self::Io { path: Some(pb), err: Some(err) }
     }
 
-    pub(crate) fn from_entry(raw_dent: &E::DirEntry, err: E::Error) -> Self {
-        Self::Io { path: Some(raw_dent.path().to_path_buf()), err: Some(err) }
+    pub(crate) fn from_entry(fsdent: &E, err: E::Error) -> Self {
+        Self::Io { path: Some(fsdent.path().to_path_buf()), err: Some(err) }
     }
 
     pub(crate) fn from_io(err: E::Error) -> Self {
@@ -54,15 +54,19 @@ impl<E: storage::StorageExt> ErrorInner<E> {
 
     pub fn take(&mut self) -> Self {
         match self {
-            Self::Io { path, err } => Self::Io { path: path.clone(), err: err.take() },
-            Self::Loop { ancestor, child } => {
-                Self::Loop { ancestor: ancestor.clone(), child: child.clone() }
-            }
+            Self::Io { path, err } => Self::Io { 
+                path: path.clone(), 
+                err: err.take() 
+            },
+            Self::Loop { ancestor, child } => Self::Loop { 
+                ancestor: ancestor.clone(), 
+                child: child.clone() 
+            },
         }
     }
 }
 
-impl<E: storage::StorageExt> std::error::Error for Error<E> {
+impl<E: fs::FsDirEntry> std::error::Error for Error<E> {
     #[allow(deprecated)]
     fn description(&self) -> &str {
         match self.inner {
@@ -85,7 +89,7 @@ impl<E: storage::StorageExt> std::error::Error for Error<E> {
     }
 }
 
-impl<E: storage::StorageExt> fmt::Display for Error<E> {
+impl<E: fs::FsDirEntry> fmt::Display for Error<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.inner {
             ErrorInner::Io { path: None, err: Some(ref err) } => err.fmt(f),
@@ -133,7 +137,7 @@ impl<E: storage::StorageExt> fmt::Display for Error<E> {
 //     }
 // }
 
-impl<E: storage::StorageExt> Error<E> {
+impl<E: fs::FsDirEntry> Error<E> {
     // pub(crate) fn into_inner(self) -> ErrorInner<E> {
     //     self.inner
     // }
@@ -265,11 +269,11 @@ impl<E: storage::StorageExt> Error<E> {
     }
 }
 
-pub fn into_io_err<E: storage::StorageExt>(err: E::Error) -> ErrorInner<E> {
+pub fn into_io_err<E: fs::FsDirEntry>(err: E::Error) -> ErrorInner<E> {
     ErrorInner::<E>::from_io(err)
 }
 
-pub fn into_path_err<E: storage::StorageExt, P: AsRef<E::Path>>(
+pub fn into_path_err<E: fs::FsDirEntry, P: AsRef<E::Path>>(
     path: P,
     err: E::Error,
 ) -> ErrorInner<E> {

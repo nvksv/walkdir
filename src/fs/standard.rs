@@ -69,7 +69,7 @@ impl FsReadDir for StandardReadDir {
     }
 
     fn process_inner_entry(&mut self, inner_entry: std::fs::DirEntry) -> Result<Self::DirEntry, Self::Error> {
-        Self::DirEntry::from_inner(inner_entry).into_ok()    
+        Self::DirEntry::from_inner(inner_entry)    
     }
 }
 
@@ -84,6 +84,7 @@ impl Iterator for StandardReadDir {
 #[derive(Debug)]
 pub struct StandardDirEntry {
     pathbuf:    std::path::PathBuf,
+    ty:         std::fs::FileType,
     inner:      std::fs::DirEntry,
 }
 
@@ -94,8 +95,10 @@ impl StandardDirEntry {
 
     pub fn from_inner(inner: std::fs::DirEntry) -> Result<Self, std::io::Error> {
         let pathbuf = inner.path().to_path_buf();
+        let ty      = inner.file_type()?;
         Self {
             pathbuf,
+            ty,
             inner
         }.into_ok()
     }
@@ -107,6 +110,7 @@ impl FsDirEntry for StandardDirEntry {
 
     type Path           = std::path::Path;
     type PathBuf        = std::path::PathBuf;
+    type FileName       = std::ffi::OsString;
 
     type Error          = std::io::Error;
     type FileType       = std::fs::FileType;
@@ -123,15 +127,30 @@ impl FsDirEntry for StandardDirEntry {
     fn pathbuf(&self) -> Self::PathBuf {
         self.pathbuf.clone()
     }
-
-    /// Get type of this entry
-    fn file_type(&self) -> Result<Self::FileType, Self::Error> {
-        std::fs::DirEntry::file_type(&self.inner)    
-    }
-
     /// Get path of this entry
     fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error> {
         std::fs::canonicalize(self.path())
+    }
+    fn file_name(&self) -> Self::FileName {
+        self.inner.file_name()
+    }
+
+    fn file_name_from_path(
+        path: &Self::Path,
+    ) -> Result<Self::FileName, Self::Error> {
+        path.to_file_name().into_ok()
+    }
+
+    /// Get type of this entry
+    fn file_type(&self) -> Self::FileType {
+        self.ty   
+    }
+
+    fn is_dir(&self) -> bool {
+        self.ty.is_dir()
+    }
+    fn metadata_is_dir(metadata: &Self::Metadata) -> bool {
+        metadata.file_type().is_dir()
     }
 
 
@@ -141,10 +160,19 @@ impl FsDirEntry for StandardDirEntry {
         follow_link: bool,
         ctx: &mut Self::Context,
     ) -> Result<Self::Metadata, Self::Error> {
+        Self::metadata_from_path( &self.pathbuf, follow_link, ctx )
+    }
+
+    /// Get metadata
+    fn metadata_from_path(
+        path: &Self::Path,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::Metadata, Self::Error> {
         if follow_link {
-            std::fs::metadata(&self.pathbuf)    
+            std::fs::metadata(path)    
         } else {
-            std::fs::symlink_metadata(&self.pathbuf)    
+            std::fs::symlink_metadata(path)    
         }
     }
 
@@ -153,9 +181,7 @@ impl FsDirEntry for StandardDirEntry {
         &self,
         ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error> {
-        StandardReadDir {
-            inner: std::fs::read_dir(self.path())?,
-        }.into_ok()
+        Self::read_dir_from_path( self.path(), ctx )
     }
 
     /// Read dir

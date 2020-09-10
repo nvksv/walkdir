@@ -225,13 +225,14 @@ impl FsDirEntry for WindowsDirEntry {
 
     type Path           = <StandardDirEntry as FsDirEntry>::Path;
     type PathBuf        = <StandardDirEntry as FsDirEntry>::PathBuf;
+    type FileName       = <StandardDirEntry as FsDirEntry>::FileName;
 
     type Error          = <StandardDirEntry as FsDirEntry>::Error;
     type FileType       = <StandardDirEntry as FsDirEntry>::FileType;
     type Metadata       = std::fs::Metadata;
     type ReadDir        = WindowsReadDir;
     type DirFingerprint = <StandardDirEntry as FsDirEntry>::DirFingerprint;
-    type DeviceNum      = <StandardDirEntry as FsDirEntry>::DeviceNum;
+    type DeviceNum      = u64;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path {
@@ -241,15 +242,33 @@ impl FsDirEntry for WindowsDirEntry {
     fn pathbuf(&self) -> Self::PathBuf {
         self.standard.pathbuf()
     }
-
-    /// Get type of this entry
-    fn file_type(&self) -> Result<Self::FileType, Self::Error> {
-        self.standard.file_type()
-    }
-
     /// Get path of this entry
     fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error> {
         self.standard.canonicalize()
+    }
+    fn file_name(&self) -> Self::FileName {
+        self.standard.file_name()
+    }
+
+    fn file_name_from_path(
+        path: &Self::Path,
+    ) -> Result<Self::FileName, Self::Error> {
+        StandardDirEntry::file_name_from_path( path )
+    }
+
+    /// Get type of this entry
+    fn file_type(&self) -> Self::FileType {
+        self.standard.file_type()
+    }
+
+    fn is_dir(&self) -> bool {
+        Self::metadata_is_dir( &self.metadata )
+    }
+    fn metadata_is_dir(metadata: &Self::Metadata) -> bool {
+        use std::os::windows::fs::MetadataExt;
+        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
+
+        metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
     }
 
 
@@ -259,11 +278,20 @@ impl FsDirEntry for WindowsDirEntry {
         follow_link: bool,
         ctx: &mut Self::Context,
     ) -> Result<Self::Metadata, Self::Error> {
-        if follow_link {
-            std::fs::metadata(&self.pathbuf)    
-        } else {
-            std::fs::symlink_metadata(&self.pathbuf)    
+        if !follow_link {
+            return self.metadata.clone().into_ok()
         }
+
+        self.standard.metadata(follow_link, ctx)
+    }
+
+    /// Get metadata
+    fn metadata_from_path(
+        path: &Self::Path,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::Metadata, Self::Error> {
+        StandardDirEntry::metadata_from_path( path, follow_link, ctx )
     }
 
     /// Read dir
@@ -272,8 +300,8 @@ impl FsDirEntry for WindowsDirEntry {
         ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error> {
         WindowsReadDir {
-            inner: std::fs::read_dir(&self.pathbuf),
-        }
+            standard: self.standard.read_dir(ctx)?,
+        }.into_ok()
     }
 
     /// Read dir
@@ -281,9 +309,9 @@ impl FsDirEntry for WindowsDirEntry {
         path: &Self::Path,
         ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error> {
-        StandardReadDir {
-            inner: std::fs::read_dir(path),
-        }
+        WindowsReadDir {
+            standard: StandardDirEntry::read_dir_from_path(path, ctx)?,
+        }.into_ok()
     }
 
     /// Return the unique handle
@@ -291,24 +319,14 @@ impl FsDirEntry for WindowsDirEntry {
         &self,
         ctx: &mut Self::Context,
     ) -> Result<Self::DirFingerprint, Self::Error> {
-        StandardDirFingerprint {
-            handle: same_file::Handle::from_path(self.path())?
-        }.into_ok()
+        self.standard.fingerprint(ctx)
     }
 
     /// device_num
     fn device_num(&self) -> Result<Self::DeviceNum, Self::Error> {
-        ().into_ok()
-    }
-}
+        use winapi_util::{file, Handle};
 
-#[derive(Debug)]
-struct WindowsDirFingerprint {
-    handle: same_file::Handle,
-}
-
-impl FsDirFingerprint for WindowsDirFingerprint {
-    fn is_same(&self, rhs: &Self) -> bool {
-        self.handle == rhs.handle
+        let h = Handle::from_path_any(self.path())?;
+        file::information(h).map(|info| info.volume_serial_number())
     }
 }
