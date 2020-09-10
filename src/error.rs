@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::fs;
-// use crate::storage::{StorageDirEntry, StoragePath, StoragePathBuf};
+use crate::fs::{FsPath, FsPathBuf};
 use crate::wd::Depth;
 
 /// An error produced by recursively walking a directory.

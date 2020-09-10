@@ -109,9 +109,4 @@ pub enum Position<BC, EN, ER> {
     AfterContent,
 }
 
-// /// Type of item for Iterators
-// pub type WalkDirIteratorItem<E, CP> = Position<
-//     (<CP as ContentProcessor<E>>::Item, <CP as ContentProcessor<E>>::Collection),
-//     <CP as ContentProcessor<E>>::Item,
-//     Error<E>,
-// >;
+

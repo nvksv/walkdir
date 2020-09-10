@@ -1,5 +1,5 @@
 use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsReadDirIterator, FsDirEntry, FsDirFingerprint};
-use crate::wd::IntoOk;
+use crate::wd::{IntoOk, IntoErr};
 
 use same_file;
 
@@ -138,7 +138,10 @@ impl FsDirEntry for StandardDirEntry {
     fn file_name_from_path(
         path: &Self::Path,
     ) -> Result<Self::FileName, Self::Error> {
-        path.to_file_name().into_ok()
+        match path.file_name() {
+            Some(n) => n.to_os_string().into_ok(),
+            None => std::io::Error::new( std::io::ErrorKind::Other, "Wrong path!" ).into_err(),
+        } 
     }
 
     /// Get type of this entry

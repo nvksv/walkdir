@@ -2,38 +2,39 @@ use std::cmp;
 use std::vec;
 
 use crate::cp::ContentProcessor;
-use crate::dir::{DirState, FlatDirEntry};
-use crate::error::ErrorInner;
-use crate::opts::{WalkDirOptions, WalkDirOptionsImmut};
-use crate::rawdent::RawDirEntry;
-use crate::storage::{self, StorageFileType, StorageMetadata, StoragePath};
+use crate::walk::dir::{DirState, FlatDirEntry};
+use crate::error::{ErrorInner, Error};
+use crate::walk::opts::{WalkDirOptions, WalkDirOptionsImmut};
+use crate::walk::rawdent::RawDirEntry;
+use crate::fs;
+use crate::fs::{FsFileType, FsMetadata, FsPath};
 use crate::wd::{
-    self, ContentFilter, Depth, FnCmp, IntoOk, IntoSome, Position, WalkDirIteratorItem,
+    self, ContentFilter, Depth, FnCmp, IntoOk, IntoSome, Position,
 };
 
-/// Like try, but for iterators that return [`Option<Result<_, _>>`].
-///
-/// [`Option<Result<_, _>>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
-macro_rules! ortry {
-    ($e:expr) => {
-        match $e {
-            Ok(v) => v,
-            Err(err) => return Some(Err(From::from(err))),
-        }
-    };
-}
+// /// Like try, but for iterators that return [`Option<Result<_, _>>`].
+// ///
+// /// [`Option<Result<_, _>>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
+// macro_rules! ortry {
+//     ($e:expr) => {
+//         match $e {
+//             Ok(v) => v,
+//             Err(err) => return Some(Err(From::from(err))),
+//         }
+//     };
+// }
 
-/// Like try, but for iterators that return [`Option<Result<_, _>>`].
-///
-/// [`Option<Result<_, _>>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
-macro_rules! rtry {
-    ($e:expr) => {
-        match $e {
-            Ok(v) => v,
-            Err(err) => return Err(From::from(err)),
-        }
-    };
-}
+// /// Like try, but for iterators that return [`Option<Result<_, _>>`].
+// ///
+// /// [`Option<Result<_, _>>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
+// macro_rules! rtry {
+//     ($e:expr) => {
+//         match $e {
+//             Ok(v) => v,
+//             Err(err) => return Err(From::from(err)),
+//         }
+//     };
+// }
 
 macro_rules! process_dent {
     ($self:expr, $depth:expr) => {
@@ -48,29 +49,42 @@ macro_rules! process_dent {
     };
 }
 
+/// Type of item for Iterators
+pub type WalkDirIteratorItem<E, CP> = Position<
+    (<CP as ContentProcessor<E>>::Item, <CP as ContentProcessor<E>>::Collection),
+    <CP as ContentProcessor<E>>::Item,
+    Error<E>,
+>;
+
 /////////////////////////////////////////////////////////////////////////
 //// Ancestor
 
 /// An ancestor is an item in the directory tree traversed by walkdir, and is
 /// used to check for loops in the tree when traversing symlinks.
 #[derive(Debug)]
-struct Ancestor<E: storage::StorageExt> {
+struct Ancestor<E: fs::FsDirEntry> {
     /// The path of this ancestor.
     path: E::PathBuf,
-    /// Extension part
-    ext: E::AncestorExt,
+    /// Fingerprint
+    fingerprint: E::DirFingerprint,
 }
 
-impl<E: storage::StorageExt> Ancestor<E> {
+impl<E: fs::FsDirEntry> Ancestor<E> {
     /// Create a new ancestor from the given directory path.
-    fn new(raw_dent: &RawDirEntry<E>) -> wd::ResultInner<Self, E> {
-        Self { path: raw_dent.path().to_path_buf(), ext: raw_dent.ancestor_new_ext()? }.into_ok()
+    fn new(
+        raw: &RawDirEntry<E>,
+        ctx: &mut E::Context,
+    ) -> wd::ResultInner<Self, E> {
+        Self { 
+            path: raw.pathbuf(), 
+            ext: raw.fingerprint(ctx)? 
+        }.into_ok()
     }
 
     /// Returns true if and only if the given open file handle corresponds to
     /// the same directory as this ancestor.
-    fn is_same(&self, child: &E::SameFileHandle) -> Result<bool, E::Error> {
-        E::is_same(&self.path, &self.ext, child)
+    fn is_same(&self, rhs: &Self) -> bool {
+        &self.fingerprint == &rhs.fingerprint
     }
 }
 
@@ -100,7 +114,7 @@ enum TransitionState {
 #[derive(Debug)]
 pub struct WalkDirIterator<E, CP>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
 {
     /// Options specified in the builder. Depths, max fds, etc.
@@ -140,19 +154,17 @@ where
     /// `None`. Conversely, if it is enabled, this is always `Some(...)` after
     /// handling the root path.
     root_device: Option<E::DeviceNum>,
-    /// Extension part.
-    ext: E::IteratorExt,
 }
 
 type PushDirData<E, CP> = (DirState<E, CP>, Option<Ancestor<E>>);
 
 impl<E, CP> WalkDirIterator<E, CP>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
 {
     /// Make new
-    pub fn new(opts: WalkDirOptions<E, CP>, root: E::PathBuf, ext: E) -> Self {
+    pub fn new(opts: WalkDirOptions<E, CP>, root: E::PathBuf) -> Self {
         Self {
             opts,
             start: Some(root),
@@ -162,7 +174,6 @@ where
             oldest_opened: 0,
             depth: 0,
             root_device: None,
-            ext: E::iterator_new(ext),
         }
     }
 
@@ -173,14 +184,17 @@ where
     fn process_rawdent(
         raw_dent: RawDirEntry<E>,
         depth: Depth,
-        opts_immut: &WalkDirOptionsImmut<E>,
+        opts_immut: &WalkDirOptionsImmut,
         root_device: &Option<E::DeviceNum>,
         ancestors: &Vec<Ancestor<E>>,
-        ctx: &mut E::IteratorExt,
+        ctx: &mut E::Context,
     ) -> Option<wd::ResultInner<FlatDirEntry<E>, E>> {
         let (new_raw_dent, loop_link, _follow_link) =
             if raw_dent.file_type().is_symlink() && opts_immut.follow_links {
-                let (new_raw_dent, loop_link) = ortry!(Self::follow(raw_dent, ancestors, ctx));
+                let (new_raw_dent, loop_link) = match Self::follow(raw_dent, ancestors, ctx) {
+                    Ok(v) => v,
+                    err @ Err(_) => return Some(err),    
+                };
                 (new_raw_dent, loop_link, true)
             } else {
                 (raw_dent, None, false)
@@ -190,9 +204,11 @@ where
 
         if is_normal_dir {
             if opts_immut.same_file_system && depth > 0 {
-                if !ortry!(Self::is_same_file_system(root_device, &new_raw_dent)) {
-                    return None;
-                };
+                match Self::is_same_file_system(root_device, &new_raw_dent) {
+                    Ok(true) => {},
+                    Ok(false) => { return None },
+                    err @ Err(_) => { return Some(err) },
+                }
             };
         } else if depth == 0 && new_raw_dent.file_type().is_symlink() {
             // As a special case, if we are processing a root entry, then we
@@ -202,17 +218,24 @@ where
             // the follow_links setting. When it's disabled, it should report
             // itself as a symlink. When it's enabled, it should always report
             // itself as the target.
-            is_normal_dir = ortry!(new_raw_dent.metadata_follow(ctx)).file_type().is_dir();
+            is_normal_dir = match new_raw_dent.metadata_follow(ctx) {
+                Ok(v) => v,
+                err @ Err(_) => { return Some(err) },
+            }.file_type().is_dir();
         };
 
-        FlatDirEntry { raw: new_raw_dent, is_dir: is_normal_dir, loop_link }.into_ok().into_some()
+        FlatDirEntry { 
+            raw: new_raw_dent, 
+            is_dir: is_normal_dir, 
+            loop_link 
+        }.into_ok().into_some()
     }
 
     fn init(&mut self, root_path: E::PathBuf) -> wd::ResultInner<(), E> {
         if self.opts.immut.same_file_system {
             let result = E::device_num(&root_path)
                 .map_err(|e| ErrorInner::<E>::from_path(root_path.clone(), e));
-            self.root_device = Some(rtry!(result));
+            self.root_device = Some(result?);
         }
         self.push_root(root_path, 0)?;
 

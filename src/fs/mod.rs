@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 mod path;
 mod standard;
 mod windows;
@@ -24,14 +26,14 @@ pub trait FsFileType: Clone + Copy + std::fmt::Debug {
 }
 
 /// Functions for FsMetadata
-pub trait FsMetadata: std::fmt::Debug {
+pub trait FsMetadata: std::fmt::Debug + Clone {
     type FileType: FsFileType;
 
     /// Get type of this entry
     fn file_type(&self) -> Self::FileType;
 }
 
-pub trait FsReadDirIterator {
+pub trait FsReadDirIterator: std::fmt::Debug + Sized {
     type Error: std::error::Error;
     type DirEntry;
 
@@ -72,14 +74,14 @@ pub trait FsDirFingerprint: std::fmt::Debug {
 pub trait FsDirEntry: std::fmt::Debug + Sized {
     type Context;
 
-    type Path: FsPath<PathBuf = Self::PathBuf, FileName = Self::FileName> + ?Sized;
-    type PathBuf: for<'p> FsPathBuf<'p, Path = Self::Path>;
+    type Path: FsPath<PathBuf = Self::PathBuf, FileName = Self::FileName> + AsRef<Self::Path> + ?Sized;
+    type PathBuf: for<'p> FsPathBuf<'p> + AsRef<Self::Path> + Deref<Target = Self::Path> + Sized;
     type FileName: Sized;
 
     type Error:    FsError;
     type FileType: FsFileType;
     type Metadata: FsMetadata<FileType=Self::FileType>;
-    type ReadDir:  FsReadDirIterator<DirEntry=Self, Error=Self::Error>;
+    type ReadDir:  FsReadDirIterator<DirEntry=Self, Error=Self::Error> + Iterator<Item = Result<Self, Self::Error>>;
     type DirFingerprint: FsDirFingerprint;
     type DeviceNum: Eq + Clone + Copy;
 
@@ -131,6 +133,12 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
     /// Return the unique handle
     fn fingerprint(
         &self,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::DirFingerprint, Self::Error>;
+
+    /// Return the unique handle
+    fn fingerprint_from_path(
+        path: &Self::Path,
         ctx: &mut Self::Context,
     ) -> Result<Self::DirFingerprint, Self::Error>;
 

@@ -4,16 +4,18 @@ use std::fmt;
 use std::marker::Send;
 use std::ops::Deref;
 
+use crate::wd::IntoSome;
+
 /// Functions for StorageExt::Path
 pub trait FsPath: Ord
 {
-    type PathBuf: for<'s> FsPathBuf<'s, Path = Self> + Deref<Target = Self> + Sized;
+    type PathBuf: Sized;
     type FileName: Sized;
 
     /// Copy to owned
     fn to_path_buf(&self) -> Self::PathBuf;
 
-    fn to_file_name(self) -> Self::FileName;
+    fn file_name(&self) -> Option<Self::FileName>;
 }
 
 /// Functions for StorageExt::PathBuf
@@ -22,12 +24,7 @@ pub trait FsPathBuf<'s>: Sized
 + Clone
 + Send
 + Sync
-// + std::ops::Deref
-// where
-//     <Self as Deref>::Target == Self::Path
 {
-    type Path: FsPath<PathBuf = Self> + AsRef<Self> + ?Sized;
-
     /// Intermediate object
     type Display: 's + fmt::Display;
 
@@ -53,8 +50,8 @@ impl FsPath for std::path::Path {
         self.to_path_buf()
     }
 
-    fn to_file_name(self) -> Self::FileName {
-        self.to_os_string()
+    fn file_name(&self) -> Option<Self::FileName> {
+        self.file_name()?.to_os_string().into_some()
     }
 }
 
@@ -87,8 +84,8 @@ impl FsPath for str {
         self.to_string()
     }
 
-    fn to_file_name(self) -> Self::FileName {
-        self.to_string()
+    fn file_name(&self) -> Option<Self::FileName> {
+        None
     }
 }
 
