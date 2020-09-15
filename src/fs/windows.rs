@@ -1,5 +1,5 @@
 use crate::fs::standard::{StandardDirEntry, StandardDirFingerprint, StandardReadDir};
-use crate::fs::{FsDirEntry, FsReadDir, FsDirFingerprint};
+use crate::fs::{FsDirEntry, FsReadDir, FsDirFingerprint, FsMetadata};
 use crate::wd::IntoOk;
 
 use std::fmt::Debug;
@@ -152,6 +152,44 @@ use same_file;
 //     }
 // }
 
+
+#[derive(Debug, Clone)]
+pub struct WindowsMetadata {
+    inner: std::fs::Metadata,
+}
+
+/// Functions for FsMetadata
+impl WindowsMetadata {
+    pub fn from_inner( inner: std::fs::Metadata, ) -> Self {
+        Self {
+            inner
+        }
+    }
+}
+
+/// Functions for FsMetadata
+impl FsMetadata for WindowsMetadata {
+    type FileType = std::fs::FileType;
+
+    /// Get type of this entry
+    fn file_type(&self) -> std::fs::FileType {
+        self.inner.file_type()
+    }
+
+    /// Is it dir?
+    fn is_dir(&self) -> bool {
+        use std::os::windows::fs::MetadataExt;
+        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
+
+        self.inner.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+    }
+    /// Is it symlink
+    fn is_symlink(&self) -> bool {
+        self.file_type().is_symlink()
+    }
+}
+
+
 #[derive(Debug)]
 pub struct WindowsReadDir {
     standard: StandardReadDir,
@@ -217,6 +255,35 @@ impl WindowsDirEntry {
             standard: inner,
         }.into_ok()
     }
+
+    fn file_name_from_path(
+        path: &<Self as FsDirEntry>::Path,
+    ) -> <Self as FsDirEntry>::FileName {
+        StandardDirEntry::file_name_from_path( path )
+    }
+
+    /// Get metadata
+    fn metadata_from_path(
+        path: &<Self as FsDirEntry>::Path,
+        follow_link: bool,
+        ctx: &mut <Self as FsDirEntry>::Context,
+    ) -> Result<<Self as FsDirEntry>::Metadata, <Self as FsDirEntry>::Error> {
+        WindowsMetadata {
+            inner: StandardDirEntry::metadata_from_path( path, follow_link, ctx )?,
+        }.into_ok()
+    }
+
+    /// Read dir
+    fn read_dir_from_path(
+        path: &<Self as FsDirEntry>::Path,
+        ctx: &mut <Self as FsDirEntry>::Context,
+    ) -> Result<<Self as FsDirEntry>::ReadDir, <Self as FsDirEntry>::Error> {
+        WindowsReadDir {
+            standard: StandardDirEntry::read_dir_from_path(path, ctx)?,
+        }.into_ok()
+    }
+
+
 }
 
 /// Functions for FsDirEntry
@@ -229,7 +296,7 @@ impl FsDirEntry for WindowsDirEntry {
 
     type Error          = <StandardDirEntry as FsDirEntry>::Error;
     type FileType       = <StandardDirEntry as FsDirEntry>::FileType;
-    type Metadata       = std::fs::Metadata;
+    type Metadata       = WindowsMetadata;
     type ReadDir        = WindowsReadDir;
     type DirFingerprint = <StandardDirEntry as FsDirEntry>::DirFingerprint;
     type DeviceNum      = u64;
@@ -250,28 +317,6 @@ impl FsDirEntry for WindowsDirEntry {
         self.standard.file_name()
     }
 
-    fn file_name_from_path(
-        path: &Self::Path,
-    ) -> Result<Self::FileName, Self::Error> {
-        StandardDirEntry::file_name_from_path( path )
-    }
-
-    /// Get type of this entry
-    fn file_type(&self) -> Self::FileType {
-        self.standard.file_type()
-    }
-
-    fn is_dir(&self) -> bool {
-        Self::metadata_is_dir( &self.metadata )
-    }
-    fn metadata_is_dir(metadata: &Self::Metadata) -> bool {
-        use std::os::windows::fs::MetadataExt;
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
-
-        metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
-    }
-
-
     /// Get metadata
     fn metadata(
         &self,
@@ -285,15 +330,6 @@ impl FsDirEntry for WindowsDirEntry {
         self.standard.metadata(follow_link, ctx)
     }
 
-    /// Get metadata
-    fn metadata_from_path(
-        path: &Self::Path,
-        follow_link: bool,
-        ctx: &mut Self::Context,
-    ) -> Result<Self::Metadata, Self::Error> {
-        StandardDirEntry::metadata_from_path( path, follow_link, ctx )
-    }
-
     /// Read dir
     fn read_dir(
         &self,
@@ -301,16 +337,6 @@ impl FsDirEntry for WindowsDirEntry {
     ) -> Result<Self::ReadDir, Self::Error> {
         WindowsReadDir {
             standard: self.standard.read_dir(ctx)?,
-        }.into_ok()
-    }
-
-    /// Read dir
-    fn read_dir_from_path(
-        path: &Self::Path,
-        ctx: &mut Self::Context,
-    ) -> Result<Self::ReadDir, Self::Error> {
-        WindowsReadDir {
-            standard: StandardDirEntry::read_dir_from_path(path, ctx)?,
         }.into_ok()
     }
 

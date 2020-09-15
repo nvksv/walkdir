@@ -67,9 +67,9 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     /// [`path_is_symlink`]: struct.DirEntry.html#method.path_is_symlink
     /// [`std::fs::read_link`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
     pub fn path(&self) -> &E::Path {
-        match self.kind {
-            RawDirEntryKind::FromPath { ref path, .. } => path,
-            RawDirEntryKind::FromFsDirEntry { ref fsdent, .. } => fsdent.path(),
+        match &self.kind {
+            RawDirEntryKind::FromPath { path, .. } => path,
+            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => fsdent.path(),
         }
     }
 
@@ -78,9 +78,9 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     /// Analogous to [`path`], but moves ownership of the path.
     ///
     /// [`path`]: struct.DirEntry.html#method.path
-    pub fn into_path(self) -> E::PathBuf {
-        match self.kind {
-            RawDirEntryKind::FromPath { path, .. } => path,
+    pub fn pathbuf(&self) -> E::PathBuf {
+        match &self.kind {
+            RawDirEntryKind::FromPath { path, .. } => path.clone(),
             RawDirEntryKind::FromFsDirEntry { fsdent, .. } => fsdent.pathbuf(),
         }
     }

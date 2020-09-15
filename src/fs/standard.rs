@@ -1,4 +1,4 @@
-use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsReadDirIterator, FsDirEntry, FsDirFingerprint};
+use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsReadDirIterator, FsDirEntry, FsDirFingerprint, FsRootDirEntry};
 use crate::wd::{IntoOk, IntoErr};
 
 use same_file;
@@ -35,6 +35,15 @@ impl FsMetadata for std::fs::Metadata {
     /// Get type of this entry
     fn file_type(&self) -> std::fs::FileType {
         std::fs::Metadata::file_type(self)    
+    }
+
+    /// Is it dir?
+    fn is_dir(&self) -> bool {
+        self.file_type().is_dir()
+    }
+    /// Is it symlink
+    fn is_symlink(&self) -> bool {
+        self.file_type().is_symlink()
     }
 }
 
@@ -104,6 +113,65 @@ impl StandardDirEntry {
     }
 }
 
+impl StandardDirEntry {
+
+    pub fn canonicalize_from_path(
+        path: &<Self as FsDirEntry>::Path
+    ) -> Result<<Self as FsDirEntry>::PathBuf, <Self as FsDirEntry>::Error> {
+        std::fs::canonicalize(path)
+    }
+
+    pub fn file_name_from_path(
+        path: &<Self as FsDirEntry>::Path,
+    ) -> <Self as FsDirEntry>::FileName {
+        match path.file_name() {
+            Some(n) => n.to_os_string(),
+            None => panic!("Wrong path!"),
+        } 
+    }
+
+    /// Get metadata
+    pub fn metadata_from_path(
+        path: &<Self as FsDirEntry>::Path,
+        follow_link: bool,
+        ctx: &mut <Self as FsDirEntry>::Context,
+    ) -> Result<<Self as FsDirEntry>::Metadata, <Self as FsDirEntry>::Error> {
+        if follow_link {
+            std::fs::metadata(path)    
+        } else {
+            std::fs::symlink_metadata(path)    
+        }
+    }
+
+    /// Read dir
+    pub fn read_dir_from_path(
+        path: &<Self as FsDirEntry>::Path,
+        ctx: &mut <Self as FsDirEntry>::Context,
+    ) -> Result<<Self as FsDirEntry>::ReadDir, <Self as FsDirEntry>::Error> {
+        StandardReadDir {
+            inner: std::fs::read_dir(path)?,
+        }.into_ok()
+    }
+
+    /// Return the unique handle
+    pub fn fingerprint_from_path(
+        path: &<Self as FsDirEntry>::Path,
+        ctx: &mut <Self as FsDirEntry>::Context,
+    ) -> Result<<Self as FsDirEntry>::DirFingerprint, <Self as FsDirEntry>::Error> {
+        StandardDirFingerprint {
+            handle: same_file::Handle::from_path(path)?
+        }.into_ok()
+    }
+
+    /// device_num
+    pub fn device_num_from_path(
+        path: &<Self as FsDirEntry>::Path,
+    ) -> Result<<Self as FsDirEntry>::DeviceNum, <Self as FsDirEntry>::Error> {
+        ().into_ok()
+    }
+
+}
+
 /// Functions for FsDirEntry
 impl FsDirEntry for StandardDirEntry {
     type Context        = ();
@@ -129,33 +197,11 @@ impl FsDirEntry for StandardDirEntry {
     }
     /// Get path of this entry
     fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error> {
-        std::fs::canonicalize(self.path())
+        Self::canonicalize_from_path(self.path())
     }
     fn file_name(&self) -> Self::FileName {
         self.inner.file_name()
     }
-
-    fn file_name_from_path(
-        path: &Self::Path,
-    ) -> Result<Self::FileName, Self::Error> {
-        match path.file_name() {
-            Some(n) => n.to_os_string().into_ok(),
-            None => std::io::Error::new( std::io::ErrorKind::Other, "Wrong path!" ).into_err(),
-        } 
-    }
-
-    /// Get type of this entry
-    fn file_type(&self) -> Self::FileType {
-        self.ty   
-    }
-
-    fn is_dir(&self) -> bool {
-        self.ty.is_dir()
-    }
-    fn metadata_is_dir(metadata: &Self::Metadata) -> bool {
-        metadata.file_type().is_dir()
-    }
-
 
     /// Get metadata
     fn metadata(
@@ -166,19 +212,6 @@ impl FsDirEntry for StandardDirEntry {
         Self::metadata_from_path( &self.pathbuf, follow_link, ctx )
     }
 
-    /// Get metadata
-    fn metadata_from_path(
-        path: &Self::Path,
-        follow_link: bool,
-        ctx: &mut Self::Context,
-    ) -> Result<Self::Metadata, Self::Error> {
-        if follow_link {
-            std::fs::metadata(path)    
-        } else {
-            std::fs::symlink_metadata(path)    
-        }
-    }
-
     /// Read dir
     fn read_dir(
         &self,
@@ -187,29 +220,17 @@ impl FsDirEntry for StandardDirEntry {
         Self::read_dir_from_path( self.path(), ctx )
     }
 
-    /// Read dir
-    fn read_dir_from_path(
-        path: &Self::Path,
-        ctx: &mut Self::Context,
-    ) -> Result<Self::ReadDir, Self::Error> {
-        StandardReadDir {
-            inner: std::fs::read_dir(path)?,
-        }.into_ok()
-    }
-
     /// Return the unique handle
     fn fingerprint(
         &self,
         ctx: &mut Self::Context,
     ) -> Result<Self::DirFingerprint, Self::Error> {
-        StandardDirFingerprint {
-            handle: same_file::Handle::from_path(self.path())?
-        }.into_ok()
+        Self::fingerprint_from_path( self.path(), ctx )
     }
 
     /// device_num
     fn device_num(&self) -> Result<Self::DeviceNum, Self::Error> {
-        ().into_ok()
+        Self::device_num_from_path( self.path() )
     }
 }
 
@@ -221,5 +242,81 @@ pub struct StandardDirFingerprint {
 impl FsDirFingerprint for StandardDirFingerprint {
     fn is_same(&self, rhs: &Self) -> bool {
         self.handle == rhs.handle
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub struct StandardRootDirEntry {
+    pathbuf:    std::path::PathBuf,
+    metadata:   std::fs::Metadata,
+}
+
+impl StandardRootDirEntry {
+    pub fn from_path(path: &std::path::Path) -> Result<Self, std::io::Error> {
+        let pathbuf  = path.to_path_buf();
+        let metadata = path.metadata()?;
+        Self {
+            pathbuf,
+            metadata,
+        }.into_ok()
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Functions for FsDirEntry
+impl FsRootDirEntry for StandardRootDirEntry {
+    type DirEntry = StandardDirEntry;
+
+
+    /// Get path of this entry
+    fn path(&self) -> &<Self::DirEntry as FsDirEntry>::Path {
+        &self.pathbuf    
+    }
+    /// Get path of this entry
+    fn pathbuf(&self) -> <Self::DirEntry as FsDirEntry>::PathBuf {
+        self.pathbuf.clone()
+    }
+    /// Get path of this entry
+    fn canonicalize(&self) -> Result<<Self::DirEntry as FsDirEntry>::PathBuf, <Self::DirEntry as FsDirEntry>::Error> {
+        StandardDirEntry::canonicalize_from_path( self.path() )
+    }
+
+    fn file_name(
+        &self
+    ) -> <Self::DirEntry as FsDirEntry>::FileName {
+        StandardDirEntry::file_name_from_path( self.path() )
+    }
+
+    /// Get metadata
+    fn metadata(
+        &self,
+        follow_link: bool,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::Metadata, <Self::DirEntry as FsDirEntry>::Error> {
+        StandardDirEntry::metadata_from_path( self.path(), follow_link, ctx )
+    }
+
+    /// Read dir
+    fn read_dir(
+        &self,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::ReadDir, <Self::DirEntry as FsDirEntry>::Error> {
+        StandardDirEntry::read_dir_from_path( self.path(), ctx )
+    }
+
+    /// Return the unique handle
+    fn fingerprint(
+        &self,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::DirFingerprint, <Self::DirEntry as FsDirEntry>::Error> {
+        StandardDirEntry::fingerprint_from_path( self.path(), ctx )
+    }
+
+    /// device_num
+    fn device_num(&self) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error> {
+        StandardDirEntry::device_num_from_path( self.path() )
     }
 }

@@ -42,7 +42,7 @@ macro_rules! process_dent {
     };
     ($opts_immut:expr, $root_device:expr, $ancestors:expr, $depth:expr) => {
         ((|opts_immut, root_device, ancestors, depth| {
-            move |raw_dent: RawDirEntry<E>, ctx: &mut E::IteratorExt| {
+            move |raw_dent: RawDirEntry<E>, ctx: &mut E::Context| {
                 Self::process_rawdent(raw_dent, depth, opts_immut, root_device, ancestors, ctx)
             }
         })($opts_immut, $root_device, $ancestors, $depth))
@@ -490,7 +490,7 @@ macro_rules! yield_rflat {
 
 impl<E, CP> Iterator for WalkDirIterator<E, CP>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
 {
     type Item = WalkDirIteratorItem<E, CP>;
@@ -503,13 +503,13 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         fn get_parent_dent<E, CP>(this: &mut WalkDirIterator<E, CP>, cur_depth: Depth) -> CP::Item
         where
-            E: storage::StorageExt,
+            E: fs::FsDirEntry,
             CP: ContentProcessor<E>,
         {
             let prev_state = this.states.get_mut(cur_depth - 1).unwrap();
             match prev_state.get_current_position() {
                 Position::Entry(rflat) => {
-                    rflat.make_item(&mut this.opts.content_processor, &mut this.ext).unwrap()
+                    rflat.make_content_item(&mut this.opts.content_processor).unwrap()
                 }
                 _ => unreachable!(),
             }
@@ -518,7 +518,7 @@ where
         // Initial actions
         if let Some(start) = self.start.take() {
             if let Err(e) = self.init(start) {
-                return Position::Error(wd::Error::from_inner(e, 0)).into_some();
+                return Position::Error(Error::from_inner(e, 0)).into_some();
                 // Here self.states is empty, so next call will always return None.
             };
         }
@@ -601,7 +601,7 @@ where
                                                 loop_depth,
                                                 rflat.path(),
                                             );
-                                            return Position::Error(wd::Error::from_inner(
+                                            return Position::Error(Error::from_inner(
                                                 err, cur_depth,
                                             ))
                                             .into_some();

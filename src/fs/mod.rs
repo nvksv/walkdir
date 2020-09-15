@@ -31,6 +31,11 @@ pub trait FsMetadata: std::fmt::Debug + Clone {
 
     /// Get type of this entry
     fn file_type(&self) -> Self::FileType;
+
+    /// Is it dir?
+    fn is_dir(&self) -> bool;
+    /// Is it symlink
+    fn is_symlink(&self) -> bool;
 }
 
 pub trait FsReadDirIterator: std::fmt::Debug + Sized {
@@ -84,6 +89,7 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
     type ReadDir:  FsReadDirIterator<DirEntry=Self, Error=Self::Error> + Iterator<Item = Result<Self, Self::Error>>;
     type DirFingerprint: FsDirFingerprint;
     type DeviceNum: Eq + Clone + Copy;
+    type RootDirEntry: FsRootDirEntry;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path;
@@ -94,16 +100,6 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
     /// Get bare name of this entry withot any leading path components
     fn file_name(&self) -> Self::FileName;
 
-    /// Get type of this entry
-    fn file_type(&self) -> Self::FileType;
-
-    fn is_dir(&self) -> bool;
-    fn metadata_is_dir(metadata: &Self::Metadata) -> bool;
-
-    fn file_name_from_path(
-        path: &Self::Path,
-    ) -> Result<Self::FileName, Self::Error>;
-
     /// Get metadata
     fn metadata(
         &self,
@@ -111,37 +107,55 @@ pub trait FsDirEntry: std::fmt::Debug + Sized {
         ctx: &mut Self::Context,
     ) -> Result<Self::Metadata, Self::Error>;
 
-    /// Get metadata
-    fn metadata_from_path(
-        path: &Self::Path,
-        follow_link: bool,
-        ctx: &mut Self::Context,
-    ) -> Result<Self::Metadata, Self::Error>;
-
-    /// Read dir
+    /// Read dir (always follow symlink!)
     fn read_dir(
         &self,
         ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error>;
 
-    /// Read dir
-    fn read_dir_from_path(
-        path: &Self::Path,
-        ctx: &mut Self::Context,
-    ) -> Result<Self::ReadDir, Self::Error>;
-
-    /// Return the unique handle
+    /// Return the unique handle (always follow symlink!)
     fn fingerprint(
         &self,
         ctx: &mut Self::Context,
     ) -> Result<Self::DirFingerprint, Self::Error>;
 
+    /// device_num (always follow symlink!)
+    fn device_num(&self) -> Result<Self::DeviceNum, Self::Error>;
+}
+
+
+/// Functions for FsRootDirEntry
+pub trait FsRootDirEntry: std::fmt::Debug + Sized {
+    type DirEntry: FsDirEntry<RootDirEntry = Self>;
+
+    /// Get path of this entry
+    fn path(&self) -> &<Self::DirEntry as FsDirEntry>::Path;
+    /// Get path of this entry
+    fn pathbuf(&self) -> <Self::DirEntry as FsDirEntry>::PathBuf;
+    /// Get canonical path of this entry
+    fn canonicalize(&self) -> Result<<Self::DirEntry as FsDirEntry>::PathBuf, <Self::DirEntry as FsDirEntry>::Error>;
+    /// Get bare name of this entry withot any leading path components
+    fn file_name(&self) -> <Self::DirEntry as FsDirEntry>::FileName;
+
+    /// Get metadata
+    fn metadata(
+        &self,
+        follow_link: bool,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::Metadata, <Self::DirEntry as FsDirEntry>::Error>;
+
+    /// Read dir
+    fn read_dir(
+        &self,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::ReadDir, <Self::DirEntry as FsDirEntry>::Error>;
+
     /// Return the unique handle
-    fn fingerprint_from_path(
-        path: &Self::Path,
-        ctx: &mut Self::Context,
-    ) -> Result<Self::DirFingerprint, Self::Error>;
+    fn fingerprint(
+        &self,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::DirFingerprint, <Self::DirEntry as FsDirEntry>::Error>;
 
     /// device_num
-    fn device_num(&self) -> Result<Self::DeviceNum, Self::Error>;
+    fn device_num(&self) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error>;
 }
