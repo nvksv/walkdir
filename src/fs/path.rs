@@ -1,8 +1,8 @@
 use std::cmp::Ord;
-use std::convert::AsRef;
+//use std::convert::AsRef;
 use std::fmt;
 use std::marker::Send;
-use std::ops::Deref;
+//use std::ops::Deref;
 
 use crate::wd::IntoSome;
 

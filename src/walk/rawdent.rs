@@ -1,16 +1,15 @@
 use crate::error::{into_io_err, into_path_err, ErrorInner};
 use crate::fs;
-use crate::fs::{FsMetadata, FsFileType, FsPath};
+use crate::fs::{FsMetadata, FsFileType, FsPath, FsRootDirEntry};
 use crate::wd::{self, FnCmp, IntoErr, IntoOk, IntoSome, Depth};
 use crate::cp::ContentProcessor;
 
 #[derive(Debug)]
 enum RawDirEntryKind<E: fs::FsDirEntry> {
-    FromPath { 
-        path: E::PathBuf,
-        metadata: E::Metadata,
+    Root { 
+        fsdent: <E as fs::FsDirEntry>::RootDirEntry, 
     },
-    FromFsDirEntry { 
+    DirEntry { 
         fsdent: E 
     },
 }
@@ -48,9 +47,46 @@ pub struct RawDirEntry<E: fs::FsDirEntry> {
     /// Is set when this entry was created from a symbolic link and the user
     /// expects to follow symbolic links.
     follow_link: bool,
+    /// Cached metadata 
+    metadata: E::Metadata,
 }
 
 impl<E: fs::FsDirEntry> RawDirEntry<E> {
+
+    pub fn from_path(
+        path: &E::Path,
+        ctx: &mut E::Context,
+    ) -> wd::ResultInner<Self, E> {
+        let (fsdent, metadata) = E::RootDirEntry::from_path( path, ctx )
+            .map_err(|err| into_path_err(path, err))?;
+        Self {
+            kind: RawDirEntryKind::<E>::Root{ fsdent },
+            follow_link: false,
+            metadata,
+        }.into_ok()
+    }
+
+    pub fn from_fsdent(
+        fsdent: E,
+        ctx: &mut E::Context,
+    ) -> wd::ResultInner<Self, E> {
+        let metadata = fsdent.metadata( false, ctx )
+            .map_err(into_io_err)?;
+        Self {
+            kind: RawDirEntryKind::<E>::DirEntry{ fsdent },
+            follow_link: false,
+            metadata,
+        }.into_ok()
+    }
+
+    pub fn follow(self, ctx: &mut E::Context) -> wd::ResultInner<Self, E> {
+        Self {
+            kind:           self.kind,
+            follow_link:    true,
+            metadata:       self.metadata_follow(ctx)?,
+        }.into_ok()
+    }
+
     /// The full path that this entry represents.
     ///
     /// The full path is created by joining the parents of this entry up to the
@@ -68,8 +104,8 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     /// [`std::fs::read_link`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
     pub fn path(&self) -> &E::Path {
         match &self.kind {
-            RawDirEntryKind::FromPath { path, .. } => path,
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => fsdent.path(),
+            RawDirEntryKind::Root { fsdent, .. }        => fsdent.path(),
+            RawDirEntryKind::DirEntry { fsdent, .. }    => fsdent.path(),
         }
     }
 
@@ -80,8 +116,8 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     /// [`path`]: struct.DirEntry.html#method.path
     pub fn pathbuf(&self) -> E::PathBuf {
         match &self.kind {
-            RawDirEntryKind::FromPath { path, .. } => path.clone(),
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => fsdent.pathbuf(),
+            RawDirEntryKind::Root { fsdent, .. }        => fsdent.pathbuf(),
+            RawDirEntryKind::DirEntry { fsdent, .. }    => fsdent.pathbuf(),
         }
     }
 
@@ -109,16 +145,8 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
     pub fn metadata(
         &self, 
-        ctx: &mut E::Context
-    ) -> wd::ResultInner<E::Metadata, E> {
-        match &self.kind {
-            RawDirEntryKind::FromPath { metadata, .. } => {
-                metadata.clone().into_ok()
-            },
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => {
-                fsdent.metadata( self.follow_link, ctx )
-            },
-        }.map_err(into_io_err)
+    ) -> &E::Metadata {
+        &self.metadata
     }
 
     pub(crate) fn metadata_follow(
@@ -126,14 +154,10 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         ctx: &mut E::Context,
     ) -> wd::ResultInner<E::Metadata, E> {
         match &self.kind {
-            RawDirEntryKind::FromPath { path, metadata, .. } => {
-                if self.follow_link {
-                    metadata.clone().into_ok()
-                } else {
-                    E::metadata_from_path( &path, true, ctx )
-                }
+            RawDirEntryKind::Root { fsdent, .. } => {
+                fsdent.metadata( true, ctx )
             },
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => {
+            RawDirEntryKind::DirEntry { fsdent, .. } => {
                 fsdent.metadata( true, ctx )
             },
         }.map_err(into_io_err)
@@ -156,15 +180,10 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     /// This never makes any system calls.
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    pub fn file_type(&self) -> E::FileType {
-        match &self.kind {
-            RawDirEntryKind::FromPath { metadata, .. } => {
-                metadata.file_type()
-            },
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => {
-                fsdent.file_type()
-            },
-        }
+    pub fn file_type(
+        &self
+    ) -> E::FileType {
+        self.metadata.file_type()
     }
 
     /// Return the file type for the file that this entry points to.
@@ -176,7 +195,19 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     pub fn is_symlink(&self) -> bool {
-        self.file_type().is_symlink()
+        self.metadata.is_symlink()
+    }
+
+    /// Return the file type for the file that this entry points to.
+    ///
+    /// If this is a symbolic link and [`follow_links`] is `true`, then this
+    /// returns the type of the target.
+    ///
+    /// This never makes any system calls.
+    ///
+    /// [`follow_links`]: struct.WalkDir.html#method.follow_links
+    pub fn is_dir(&self) -> bool {
+        self.metadata.is_dir()
     }
 
     pub fn follow_link(&self) -> bool {
@@ -189,89 +220,66 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     /// returned.
     pub fn file_name(&self) -> E::FileName {
         match &self.kind {
-            RawDirEntryKind::FromPath { path, .. } => {
-                E::file_name_from_path( &path ).unwrap_or_else( |_| path.file_name().unwrap() )
+            RawDirEntryKind::Root { fsdent, .. } => {
+                fsdent.file_name()
             },
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => {
+            RawDirEntryKind::DirEntry { fsdent, .. } => {
                 fsdent.file_name()
             },
         }
     }
 
-    /// Returns true if and only if this entry points to a directory.
-    pub fn is_dir(&self) -> bool {
-        match &self.kind {
-            RawDirEntryKind::FromPath { metadata, .. } => {
-                E::metadata_is_dir( &metadata )
-            },
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => {
-                fsdent.is_dir()
-            },
-        }
-    }
+    // fn from_path_internal(
+    //     path: &E::Path,
+    //     ctx: &mut E::Context,
+    //     follow_link: bool,
+    // ) -> wd::ResultInner<Self, E> {
+    //     let md = E::metadata_from_path( path, follow_link, ctx ).map_err(|e| into_path_err(path, e))?;
+    //     let pb = path.as_ref().to_path_buf();
 
-    fn from_fsentry(fsdent: E) -> wd::ResultInner<Self, E> {
-        Self { 
-            kind: RawDirEntryKind::FromFsDirEntry { fsdent },
-            follow_link: false, 
-        }.into_ok()
-    }
+    //     Self { 
+    //         kind: RawDirEntryKind::Root { 
+    //             path: pb,  
+    //             metadata: md,
+    //         },
+    //         follow_link, 
+    //     }.into_ok()
+    // }
 
-    fn from_path_internal(
-        path: &E::Path,
-        ctx: &mut E::Context,
-        follow_link: bool,
-    ) -> wd::ResultInner<Self, E> {
-        let md = E::metadata_from_path( path, follow_link, ctx ).map_err(|e| into_path_err(path, e))?;
-        let pb = path.as_ref().to_path_buf();
-
-        Self { 
-            kind: RawDirEntryKind::FromPath { 
-                path: pb,  
-                metadata: md,
-            },
-            follow_link, 
-        }.into_ok()
-    }
-
-    pub fn from_path(
-        path: &E::Path,
-        ctx: &mut E::Context,
-    ) -> wd::ResultInner<ReadDir<E>, E> {
-        let rawdent = Self::from_path_internal( path, ctx, false )?;
-        ReadDir::<E>::new_once(rawdent).into_ok()
-    }
+    // pub fn from_path(
+    //     path: &E::Path,
+    //     ctx: &mut E::Context,
+    // ) -> wd::ResultInner<ReadDir<E>, E> {
+    //     let rawdent = Self::from_path_internal( path, ctx, false )?;
+    //     ReadDir::<E>::new_once(rawdent).into_ok()
+    // }
 
     pub fn read_dir(
         &self, 
         ctx: &mut E::Context
     ) -> wd::ResultInner<ReadDir<E>, E> {
         let rd = match &self.kind {
-            RawDirEntryKind::FromPath { path, .. } => {
-                E::read_dir_from_path( &path, ctx )
+            RawDirEntryKind::Root { fsdent, .. } => {
+                fsdent.read_dir( ctx )
             },
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => {
+            RawDirEntryKind::DirEntry { fsdent, .. } => {
                 fsdent.read_dir( ctx )
             },
         }.map_err(into_io_err)?;
         ReadDir::<E>::new(rd).into_ok()
     }
 
-    pub fn follow(&self, ctx: &mut E::Context) -> wd::ResultInner<Self, E> {
-        Self::from_path_internal( self.path(), ctx, true )
-    }
-
-    fn get_fs_dir_entry(&self) -> Option<&E> {
+    fn as_fsdent_md(&self) -> Option<(&E, &E::Metadata)> {
         match &self.kind {
-            RawDirEntryKind::FromFsDirEntry { ref fsdent, .. } => Some(fsdent),
-            RawDirEntryKind::FromPath { .. } => None,
+            RawDirEntryKind::Root { .. } => None,
+            RawDirEntryKind::DirEntry { ref fsdent, .. } => (fsdent, &self.metadata).into_some(),
         }
     }
 
     pub fn call_cmp(a: &Self, b: &Self, cmp: &mut FnCmp<E>) -> std::cmp::Ordering {
-        let fs_a = a.get_fs_dir_entry().unwrap();
-        let fs_b = b.get_fs_dir_entry().unwrap();
-        cmp(fs_a, fs_b)
+        let ap = a.as_fsdent_md().unwrap();
+        let bp = b.as_fsdent_md().unwrap();
+        cmp(ap, bp)
     }
 
     pub fn make_content_item<CP: ContentProcessor<E>>(
@@ -281,29 +289,29 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         depth: Depth,
     ) -> Option<CP::Item> {
         match &self.kind {
-            RawDirEntryKind::FromPath { path, .. } => {
-                content_processor.process_direntry_from_path( &path, is_dir, self.follow_link, depth )
+            RawDirEntryKind::Root { fsdent, .. } => {
+                content_processor.process_root_direntry( fsdent, is_dir, self.follow_link, depth )
             },
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => {
+            RawDirEntryKind::DirEntry { fsdent, .. } => {
                 content_processor.process_direntry( fsdent, is_dir, self.follow_link, depth )
             },
         }
     }
 
-    pub fn error_inner_from_entry(&self, err: E::Error) -> ErrorInner<E> {
-        ErrorInner::<E>::from_entry(self.get_fs_dir_entry().unwrap(), err)
-    }
+    // pub fn error_inner_from_entry(&self, err: E::Error) -> ErrorInner<E> {
+    //     ErrorInner::<E>::from_entry(self.get_fs_dir_entry().unwrap(), err)
+    // }
 
     fn fingerprint(
         &self,
         ctx: &mut E::Context,
     ) -> wd::ResultInner<E::DirFingerprint, E> {
         match &self.kind {
-            RawDirEntryKind::FromPath { path, .. } => {
-                E::fingerprint_from_path( path, ctx )
+            RawDirEntryKind::Root { fsdent, .. } => {
+                fsdent.fingerprint( ctx )
             },
-            RawDirEntryKind::FromFsDirEntry { fsdent, .. } => {
-                fsdent.fingerprint()
+            RawDirEntryKind::DirEntry { fsdent, .. } => {
+                fsdent.fingerprint( ctx )
             },
         }.map_err(into_io_err)
     }
@@ -397,19 +405,21 @@ impl<E: fs::FsDirEntry> ReadDir<E> {
         }
     }
 
-    fn fsdent_into_raw(r_ent: Result<E, E::Error>) -> wd::ResultInner<RawDirEntry<E>, E> {
+    fn fsdent_into_raw(
+        r_ent: Result<E, E::Error>,
+        ctx: &mut E::Context,
+    ) -> wd::ResultInner<RawDirEntry<E>, E> {
         match r_ent {
-            Ok(ent) => RawDirEntry::<E>::from_fsentry(ent),
+            Ok(ent) => RawDirEntry::<E>::from_fsdent( ent, ctx ),
             Err(err) => into_io_err(err).into_err(),
         }
     }
-}
-
-impl<E: fs::FsDirEntry> Iterator for ReadDir<E> {
-    type Item = wd::ResultInner<RawDirEntry<E>, E>;
 
     #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(
+        &mut self,
+        ctx: &mut E::Context,
+    ) -> Option<wd::ResultInner<RawDirEntry<E>, E>> {
         match *self {
             ReadDir::Once { ref mut item } => item.take().map(Ok),
             ReadDir::Opened { ref mut rd } => rd.next().map(Self::fsdent_into_raw),
@@ -417,4 +427,9 @@ impl<E: fs::FsDirEntry> Iterator for ReadDir<E> {
             ReadDir::Error(ref mut err) => err.take().map(Err),
         }
     }
+}
+
+impl<E: fs::FsDirEntry> Iterator for ReadDir<E> {
+    type Item = ;
+
 }

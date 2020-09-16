@@ -1,7 +1,9 @@
-use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsReadDirIterator, FsDirEntry, FsDirFingerprint, FsRootDirEntry};
-use crate::wd::{IntoOk, IntoErr};
+use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsReadDirIterator, FsDirEntry, FsRootDirEntry};
+use crate::wd::{IntoOk};
 
 use same_file;
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 impl FsError for std::io::Error {
     type Inner = Self;
@@ -11,6 +13,8 @@ impl FsError for std::io::Error {
         inner
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Functions for FsFileType
 impl FsFileType for std::fs::FileType {
@@ -27,6 +31,8 @@ impl FsFileType for std::fs::FileType {
         std::fs::FileType::is_symlink(self)
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Functions for FsMetadata
 impl FsMetadata for std::fs::Metadata {
@@ -47,11 +53,17 @@ impl FsMetadata for std::fs::Metadata {
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 impl FsReadDirIterator for std::fs::ReadDir {
+    type Context    = ();
     type Error      = std::io::Error;
     type DirEntry   = std::fs::DirEntry;
 
-    fn next_entry(&mut self) -> Option<Result<Self::DirEntry, Self::Error>> {
+    fn next_entry(
+        &mut self,
+        ctx: &mut Self::Context,
+    ) -> Option<Result<Self::DirEntry, Self::Error>> {
         self.next()
     }
 }
@@ -89,6 +101,8 @@ impl Iterator for StandardReadDir {
         self.next_fsentry()
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
 pub struct StandardDirEntry {
@@ -186,6 +200,7 @@ impl FsDirEntry for StandardDirEntry {
     type ReadDir        = StandardReadDir;
     type DirFingerprint = StandardDirFingerprint;
     type DeviceNum      = ();
+    type RootDirEntry   = StandardRootDirEntry;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path {
@@ -234,15 +249,11 @@ impl FsDirEntry for StandardDirEntry {
     }
 }
 
-#[derive(Debug)]
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct StandardDirFingerprint {
     handle: same_file::Handle,
-}
-
-impl FsDirFingerprint for StandardDirFingerprint {
-    fn is_same(&self, rhs: &Self) -> bool {
-        self.handle == rhs.handle
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -263,8 +274,6 @@ impl StandardRootDirEntry {
         }.into_ok()
     }
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Functions for FsDirEntry
 impl FsRootDirEntry for StandardRootDirEntry {

@@ -1,13 +1,13 @@
-use crate::fs::standard::{StandardDirEntry, StandardDirFingerprint, StandardReadDir};
-use crate::fs::{FsDirEntry, FsReadDir, FsDirFingerprint, FsMetadata};
+use crate::fs::standard::{StandardDirEntry, StandardReadDir};
+use crate::fs::{FsDirEntry, FsReadDir, FsMetadata};
 use crate::wd::IntoOk;
 
 use std::fmt::Debug;
 use std::fs;
-use std::io;
-use std::path;
+// use std::io;
+// use std::path;
 
-use same_file;
+// use same_file;
 
 
 // impl StorageExt for WalkDirWindowsExt {
@@ -152,6 +152,7 @@ use same_file;
 //     }
 // }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Clone)]
 pub struct WindowsMetadata {
@@ -189,6 +190,7 @@ impl FsMetadata for WindowsMetadata {
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
 pub struct WindowsReadDir {
@@ -226,6 +228,8 @@ impl Iterator for WindowsReadDir {
         self.next_fsentry()
     }
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
 pub struct WindowsDirEntry {
@@ -300,6 +304,7 @@ impl FsDirEntry for WindowsDirEntry {
     type ReadDir        = WindowsReadDir;
     type DirFingerprint = <StandardDirEntry as FsDirEntry>::DirFingerprint;
     type DeviceNum      = u64;
+    type RootDirEntry   = <StandardDirEntry as FsDirEntry>::RootDirEntry;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path {
@@ -323,11 +328,13 @@ impl FsDirEntry for WindowsDirEntry {
         follow_link: bool,
         ctx: &mut Self::Context,
     ) -> Result<Self::Metadata, Self::Error> {
-        if !follow_link {
-            return self.metadata.clone().into_ok()
-        }
+        let md = if !follow_link {
+            self.metadata.clone()
+        } else {
+            self.standard.metadata(follow_link, ctx)?
+        };
 
-        self.standard.metadata(follow_link, ctx)
+        WindowsMetadata::from_inner(md).into_ok()
     }
 
     /// Read dir
@@ -356,3 +363,4 @@ impl FsDirEntry for WindowsDirEntry {
         file::information(h).map(|info| info.volume_serial_number())
     }
 }
+

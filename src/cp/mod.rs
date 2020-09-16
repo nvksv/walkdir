@@ -11,9 +11,9 @@ pub trait ContentProcessor<E: fs::FsDirEntry>: Default + std::fmt::Debug {
     type Collection: FromIterator<Self::Item>;
 
     /// Convert RawDirEntry into final entry type (e.g. DirEntry)
-    fn process_direntry_from_path(
+    fn process_root_direntry(
         &self,
-        path: &E::Path,
+        fsdent: &E::RootDirEntry,
         is_dir: bool,
         follow_link: bool,
         depth: Depth,
