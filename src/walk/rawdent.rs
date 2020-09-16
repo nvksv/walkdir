@@ -1,6 +1,6 @@
 use crate::error::{into_io_err, into_path_err, ErrorInner};
 use crate::fs;
-use crate::fs::{FsMetadata, FsFileType, FsPath, FsRootDirEntry};
+use crate::fs::{FsMetadata, FsFileType, FsPath, FsRootDirEntry, FsReadDirIterator};
 use crate::wd::{self, FnCmp, IntoErr, IntoOk, IntoSome, Depth};
 use crate::cp::ContentProcessor;
 
@@ -372,11 +372,12 @@ impl<E: fs::FsDirEntry> ReadDir<E> {
     pub fn collect_all<T>(
         &mut self,
         process_rawdent: &mut impl (FnMut(wd::ResultInner<RawDirEntry<E>, E>) -> Option<T>),
+        ctx: &mut E::Context,
     ) -> Vec<T> {
         match *self {
             ReadDir::Opened { ref mut rd } => {
                 let entries = rd
-                    .map(Self::fsdent_into_raw)
+                    .map(|fsdent| Self::fsdent_into_raw(fsdent, ctx))
                     .map(process_rawdent)
                     .filter_map(|opt| opt)
                     .collect();
@@ -422,14 +423,9 @@ impl<E: fs::FsDirEntry> ReadDir<E> {
     ) -> Option<wd::ResultInner<RawDirEntry<E>, E>> {
         match *self {
             ReadDir::Once { ref mut item } => item.take().map(Ok),
-            ReadDir::Opened { ref mut rd } => rd.next().map(Self::fsdent_into_raw),
+            ReadDir::Opened { ref mut rd } => rd.next_entry(ctx).map(|fsdent| Self::fsdent_into_raw(fsdent, ctx)),
             ReadDir::Closed => None,
             ReadDir::Error(ref mut err) => err.take().map(Err),
         }
     }
-}
-
-impl<E: fs::FsDirEntry> Iterator for ReadDir<E> {
-    type Item = ;
-
 }

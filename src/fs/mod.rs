@@ -93,6 +93,21 @@ impl<RD> FsReadDirIterator for RD where RD: FsReadDir {
     }
 }
 
+impl<RD, DE, E> FsReadDirIterator for RD where 
+    RD: Iterator<Item=Result<DE, E>>,
+{
+    type Context    = ();
+    type Error      = E;
+    type DirEntry   = DE;
+
+    fn next_entry(
+        &mut self,
+        ctx: &mut Self::Context,
+    ) -> Option<Result<Self::DirEntry, Self::Error>> {
+        self.next()
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Functions for FsDirEntry
@@ -109,7 +124,7 @@ pub trait FsDirEntry: Debug + Sized {
     type ReadDir:  FsReadDirIterator<Context=Self::Context, DirEntry=Self, Error=Self::Error>;
     type DirFingerprint: Debug + Eq;
     type DeviceNum: Eq + Clone + Copy;
-    type RootDirEntry: FsRootDirEntry<DirEntry=Self>;
+    type RootDirEntry: FsRootDirEntry<Context=Self::Context, DirEntry=Self>;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path;

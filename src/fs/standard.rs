@@ -55,18 +55,18 @@ impl FsMetadata for std::fs::Metadata {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-impl FsReadDirIterator for std::fs::ReadDir {
-    type Context    = ();
-    type Error      = std::io::Error;
-    type DirEntry   = std::fs::DirEntry;
+// impl FsReadDirIterator for std::fs::ReadDir {
+//     type Context    = ();
+//     type Error      = std::io::Error;
+//     type DirEntry   = std::fs::DirEntry;
 
-    fn next_entry(
-        &mut self,
-        ctx: &mut Self::Context,
-    ) -> Option<Result<Self::DirEntry, Self::Error>> {
-        self.next()
-    }
-}
+//     fn next_entry(
+//         &mut self,
+//         ctx: &mut Self::Context,
+//     ) -> Option<Result<Self::DirEntry, Self::Error>> {
+//         self.next()
+//     }
+// }
 
 #[derive(Debug)]
 pub struct StandardReadDir {
@@ -81,6 +81,7 @@ impl StandardReadDir {
 
 /// Functions for FsReadDir
 impl FsReadDir for StandardReadDir {
+    type Context    = ();
     type Inner      = std::fs::ReadDir;
     type Error      = std::io::Error;
     type DirEntry   = StandardDirEntry;
@@ -94,13 +95,14 @@ impl FsReadDir for StandardReadDir {
     }
 }
 
-impl Iterator for StandardReadDir {
-    type Item = Result<StandardDirEntry, std::io::Error>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next_fsentry()
-    }
-}
+// impl Iterator for StandardReadDir {
+//     type Item = Result<StandardDirEntry, std::io::Error>;
+
+//     fn next(&mut self) -> Option<Self::Item> {
+//         self.next_fsentry(&mut ())
+//     }
+// }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
