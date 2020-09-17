@@ -3,7 +3,7 @@ use std::vec;
 
 use crate::walk::rawdent::{RawDirEntry, ReadDir};
 use crate::fs;
-use crate::fs::{FsFileType, FsMetadata, FsPath};
+use crate::fs::{FsFileType, FsMetadata};
 use crate::wd::{self, ContentFilter, ContentOrder, Depth, FnCmp, IntoOk, Position};
 use crate::cp::ContentProcessor;
 use crate::walk::opts::WalkDirOptionsImmut;
@@ -120,7 +120,7 @@ where
         ctx: &mut E::Context,
     ) -> wd::ResultInner<Self, E> {
         Self {
-            rd: RawDirEntry::<E>::from_path(path, ctx)?,
+            rd: ReadDir::<E>::new_once(path, ctx)?,
             content: vec![],
             current_pos: None,
             _cp: std::marker::PhantomData,
@@ -129,7 +129,10 @@ where
     }
 
     /// New DirContent from FsReadDir
-    pub fn new(parent: &RawDirEntry<E>, ctx: &mut E::Context) -> wd::ResultInner<Self, E> {
+    pub fn new(
+        parent: &RawDirEntry<E>, 
+        ctx: &mut E::Context
+    ) -> wd::ResultInner<Self, E> {
         Self {
             rd: parent.read_dir(ctx)?,
             content: vec![],
@@ -150,9 +153,7 @@ where
         ) -> Option<wd::ResultInner<FlatDirEntry<E>, E>>),
         ctx: &mut E::Context,
     ) {
-        let mut collected = self.rd.collect_all(&mut |r_rawdent| {
-            Self::new_rec(r_rawdent, opts_immut, process_rawdent, ctx)
-        });
+        let mut collected = self.rd.collect_all(&mut |r_rawdent, ctx| Self::new_rec(r_rawdent, opts_immut, process_rawdent, ctx), ctx);
 
         if self.content.is_empty() {
             self.content = collected;
@@ -200,7 +201,7 @@ where
                 return Some((rec.first_pass, rec.can_be_yielded()));
             }
 
-            if let Some(r_rawdent) = self.rd.next() {
+            if let Some(r_rawdent) = self.rd.next(ctx) {
                 let rec = match Self::new_rec(r_rawdent, opts_immut, process_rawdent, ctx) {
                     Some(rec) => rec,
                     None => continue,

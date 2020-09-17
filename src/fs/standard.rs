@@ -1,4 +1,4 @@
-use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsReadDirIterator, FsDirEntry, FsRootDirEntry};
+use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsDirEntry, FsRootDirEntry};
 use crate::wd::{IntoOk};
 
 use same_file;
@@ -243,6 +243,13 @@ impl FsDirEntry for StandardDirEntry {
         ctx: &mut Self::Context,
     ) -> Result<Self::DirFingerprint, Self::Error> {
         Self::fingerprint_from_path( self.path(), ctx )
+    }
+
+    fn is_same(
+        lhs: (&Self::Path, &Self::DirFingerprint),
+        rhs: (&Self::Path, &Self::DirFingerprint),
+    ) -> bool {
+        lhs.1 == rhs.1
     }
 
     /// device_num

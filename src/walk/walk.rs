@@ -71,20 +71,20 @@ struct Ancestor<E: fs::FsDirEntry> {
 
 impl<E: fs::FsDirEntry> Ancestor<E> {
     /// Create a new ancestor from the given directory path.
-    fn new(
+    pub fn new(
         raw: &RawDirEntry<E>,
         ctx: &mut E::Context,
     ) -> wd::ResultInner<Self, E> {
         Self { 
             path: raw.pathbuf(), 
-            ext: raw.fingerprint(ctx)? 
+            fingerprint: raw.fingerprint(ctx)? 
         }.into_ok()
     }
 
     /// Returns true if and only if the given open file handle corresponds to
     /// the same directory as this ancestor.
     fn is_same(&self, rhs: &Self) -> bool {
-        &self.fingerprint == &rhs.fingerprint
+        E::is_same( (&self.path, &self.fingerprint), (&rhs.path, &rhs.fingerprint))
     }
 }
 
@@ -154,6 +154,7 @@ where
     /// `None`. Conversely, if it is enabled, this is always `Some(...)` after
     /// handling the root path.
     root_device: Option<E::DeviceNum>,
+    ctx: E::Context,
 }
 
 type PushDirData<E, CP> = (DirState<E, CP>, Option<Ancestor<E>>);
@@ -164,7 +165,7 @@ where
     CP: ContentProcessor<E>,
 {
     /// Make new
-    pub fn new(opts: WalkDirOptions<E, CP>, root: E::PathBuf) -> Self {
+    pub fn new(opts: WalkDirOptions<E, CP>, root: E::PathBuf, ctx: E::Context) -> Self {
         Self {
             opts,
             start: Some(root),
@@ -174,6 +175,7 @@ where
             oldest_opened: 0,
             depth: 0,
             root_device: None,
+            ctx,
         }
     }
 
@@ -182,35 +184,35 @@ where
     // - Some(Err(_)) -- some error occured
     // - None -- entry must be ignored
     fn process_rawdent(
-        raw_dent: RawDirEntry<E>,
+        mut rawdent: RawDirEntry<E>,
         depth: Depth,
         opts_immut: &WalkDirOptionsImmut,
         root_device: &Option<E::DeviceNum>,
         ancestors: &Vec<Ancestor<E>>,
         ctx: &mut E::Context,
     ) -> Option<wd::ResultInner<FlatDirEntry<E>, E>> {
-        let (new_raw_dent, loop_link, _follow_link) =
-            if raw_dent.file_type().is_symlink() && opts_immut.follow_links {
-                let (new_raw_dent, loop_link) = match Self::follow(raw_dent, ancestors, ctx) {
+        let (rawdent, loop_link) =
+            if rawdent.is_symlink() && opts_immut.follow_links {
+                let (rawdent, loop_link) = match Self::follow(rawdent, ancestors, ctx) {
                     Ok(v) => v,
-                    err @ Err(_) => return Some(err),    
+                    Err(err) => return Err(err).into_some(),    
                 };
-                (new_raw_dent, loop_link, true)
+                (rawdent, loop_link)
             } else {
-                (raw_dent, None, false)
+                (rawdent, None)
             };
 
-        let mut is_normal_dir = !new_raw_dent.file_type().is_symlink() && new_raw_dent.is_dir();
+        let mut is_normal_dir = !rawdent.is_symlink() && rawdent.is_dir();
 
         if is_normal_dir {
             if opts_immut.same_file_system && depth > 0 {
-                match Self::is_same_file_system(root_device, &new_raw_dent) {
+                match Self::is_same_file_system(root_device, &rawdent) {
                     Ok(true) => {},
-                    Ok(false) => { return None },
-                    err @ Err(_) => { return Some(err) },
+                    Ok(false) => return None,
+                    Err(err) => return Err(err).into_some(),    
                 }
             };
-        } else if depth == 0 && new_raw_dent.file_type().is_symlink() {
+        } else if depth == 0 && rawdent.is_symlink() {
             // As a special case, if we are processing a root entry, then we
             // always follow it even if it's a symlink and follow_links is
             // false. We are careful to not let this change the semantics of
@@ -218,14 +220,14 @@ where
             // the follow_links setting. When it's disabled, it should report
             // itself as a symlink. When it's enabled, it should always report
             // itself as the target.
-            is_normal_dir = match new_raw_dent.metadata_follow(ctx) {
+            is_normal_dir = match rawdent.metadata_follow(ctx) {
                 Ok(v) => v,
-                err @ Err(_) => { return Some(err) },
-            }.file_type().is_dir();
+                Err(err) => return Err(err).into_some(),    
+            }.is_dir();
         };
 
         FlatDirEntry { 
-            raw: new_raw_dent, 
+            raw: rawdent, 
             is_dir: is_normal_dir, 
             loop_link 
         }.into_ok().into_some()
@@ -233,7 +235,7 @@ where
 
     fn init(&mut self, root_path: E::PathBuf) -> wd::ResultInner<(), E> {
         if self.opts.immut.same_file_system {
-            let result = E::device_num(&root_path)
+            let result = E::device_num(&root_path, &mut self.ctx)
                 .map_err(|e| ErrorInner::<E>::from_path(root_path.clone(), e));
             self.root_device = Some(result?);
         }
@@ -249,7 +251,7 @@ where
             &self.opts.immut,
             &mut self.opts.sorter,
             &mut process_dent!(self, new_depth),
-            &mut self.ext,
+            &mut self.ctx,
         )?;
 
         self.states.push(state);
@@ -265,7 +267,7 @@ where
             state.load_all(
                 &self.opts.immut,
                 &mut process_dent!(self, state.depth()),
-                &mut self.ext,
+                &mut self.ctx,
             );
         }
     }
@@ -273,11 +275,11 @@ where
     fn push_dir_1(
         flat: &FlatDirEntry<E>,
         new_depth: Depth,
-        opts_immut: &WalkDirOptionsImmut<E>,
+        opts_immut: &WalkDirOptionsImmut,
         sorter: &mut Option<FnCmp<E>>,
         root_device: &Option<E::DeviceNum>,
         ancestors: &Vec<Ancestor<E>>,
-        ctx: &mut E::IteratorExt,
+        ctx: &mut E::Context,
     ) -> wd::ResultInner<PushDirData<E, CP>, E> {
         // This is safe as we makes any changes strictly AFTER using dent_ptr.
         // Neither E::read_dir nor Ancestor::new
@@ -295,7 +297,7 @@ where
         )?;
 
         let ancestor = if opts_immut.follow_links {
-            let ancestor = Ancestor::new(&flat.raw)?;
+            let ancestor = Ancestor::new(&flat.raw, ctx)?;
             Some(ancestor)
         } else {
             None
@@ -395,12 +397,12 @@ where
     fn follow(
         raw: RawDirEntry<E>,
         ancestors: &Vec<Ancestor<E>>,
-        ctx: &mut E::IteratorExt,
+        ctx: &mut E::Context,
     ) -> wd::ResultInner<(RawDirEntry<E>, Option<Depth>), E> {
         let dent = raw.follow(ctx)?;
 
         let loop_link = if dent.is_dir() && !ancestors.is_empty() {
-            Self::check_loop(dent.path(), ancestors)?
+            Self::check_loop( &dent, ancestors, ctx )?
         } else {
             None
         };
@@ -408,15 +410,15 @@ where
         Ok((dent, loop_link))
     }
 
-    fn check_loop<P: AsRef<E::Path>>(
-        child: P,
+    fn check_loop(
+        raw: &RawDirEntry<E>,
         ancestors: &Vec<Ancestor<E>>,
+        ctx: &mut E::Context,
     ) -> wd::ResultInner<Option<Depth>, E> {
-        let hchild = E::get_handle(&child).map_err(ErrorInner::<E>::from_io)?;
+        let raw_as_ancestor = Ancestor::<E>::new( raw, ctx )?;
 
         for (index, ancestor) in ancestors.iter().enumerate().rev() {
-            let is_same = ancestor.is_same(&hchild).map_err(ErrorInner::<E>::from_io)?;
-            if is_same {
+            if ancestor.is_same(&raw_as_ancestor) {
                 return Ok(Some(index));
             }
         }
@@ -454,7 +456,7 @@ where
             &self.opts.immut,
             &mut self.opts.content_processor,
             &mut process_dent!(self, cur_state.depth()),
-            &mut self.ext,
+            &mut self.ctx,
         );
 
         content
@@ -463,11 +465,11 @@ where
 
 macro_rules! next_and_yield_rflat {
     ($self:expr, $cur_state:expr, $cur_depth:expr, $rflat:expr) => {{
-        let odent = $rflat.make_item(&mut $self.opts.content_processor, &mut $self.ext);
+        let odent = $rflat.make_content_item(&mut $self.opts.content_processor);
         $cur_state.next_position(
             &$self.opts.immut,
             &mut process_dent!($self, $cur_depth),
-            &mut $self.ext,
+            &mut $self.ctx,
         );
         if let Some(dent) = odent {
             return Position::Entry(dent).into_some();
@@ -479,7 +481,7 @@ macro_rules! next_and_yield_rflat {
 
 macro_rules! yield_rflat {
     ($self:expr, $cur_state:expr, $cur_depth:expr, $rflat:expr) => {{
-        let odent = $rflat.make_item(&mut $self.opts.content_processor, &mut $self.ext);
+        let odent = $rflat.make_content_item(&mut $self.opts.content_processor);
         if let Some(dent) = odent {
             return Position::Entry(dent).into_some();
         } else {
@@ -547,7 +549,7 @@ where
                     cur_state.next_position(
                         &self.opts.immut,
                         &mut process_dent!(self, cur_depth),
-                        &mut self.ext,
+                        &mut self.ctx,
                     );
 
                     // At root we dont't yield Position::BeforeContent
@@ -559,7 +561,7 @@ where
                         &self.opts.immut,
                         &mut self.opts.content_processor,
                         &mut process_dent!(self, cur_state.depth()),
-                        &mut self.ext,
+                        &mut self.ctx,
                     );
                     let parent = get_parent_dent(self, cur_depth);
                     return Position::BeforeContent((parent, content)).into_some();
@@ -637,7 +639,7 @@ where
                                     &mut self.opts.sorter,
                                     &self.root_device,
                                     &self.ancestors,
-                                    &mut self.ext,
+                                    &mut self.ctx,
                                 ) {
                                     Ok(data) => {
                                         self.push_dir_2(data);
@@ -646,7 +648,7 @@ where
                                         // Jump to last step
                                         self.transition_state = TransitionState::AfterPopUp;
                                         // And yield an error
-                                        return Position::Error(wd::Error::from_inner(
+                                        return Position::Error(Error::from_inner(
                                             err, cur_depth,
                                         ))
                                         .into_some();
@@ -666,7 +668,7 @@ where
                                     cur_state.next_position(
                                         &self.opts.immut,
                                         &mut process_dent!(self, cur_depth),
-                                        &mut self.ext,
+                                        &mut self.ctx,
                                     );
                                 };
                             }
@@ -684,7 +686,7 @@ where
                             cur_state.next_position(
                                 &self.opts.immut,
                                 &mut process_dent!(self, cur_depth),
-                                &mut self.ext,
+                                &mut self.ctx,
                             );
                         };
                     }
@@ -698,7 +700,7 @@ where
                     cur_state.next_position(
                         &self.opts.immut,
                         &mut process_dent!(self, cur_depth),
-                        &mut self.ext,
+                        &mut self.ctx,
                     );
                     return Position::Error(err).into_some();
                 }

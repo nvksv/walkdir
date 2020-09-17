@@ -355,6 +355,13 @@ impl FsDirEntry for WindowsDirEntry {
         self.standard.fingerprint(ctx)
     }
 
+    fn is_same(
+        lhs: (&Self::Path, &Self::DirFingerprint),
+        rhs: (&Self::Path, &Self::DirFingerprint),
+    ) -> bool {
+        StandardDirEntry::is_same( lhs, rhs )
+    }
+
     /// device_num
     fn device_num(&self) -> Result<Self::DeviceNum, Self::Error> {
         use winapi_util::{file, Handle};

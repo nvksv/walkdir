@@ -154,8 +154,15 @@ pub trait FsDirEntry: Debug + Sized {
         ctx: &mut Self::Context,
     ) -> Result<Self::DirFingerprint, Self::Error>;
 
+    fn is_same(
+        lhs: (&Self::Path, &Self::DirFingerprint),
+        rhs: (&Self::Path, &Self::DirFingerprint),
+    ) -> bool;
+
     /// device_num (always follow symlink!)
-    fn device_num(&self) -> Result<Self::DeviceNum, Self::Error>;
+    fn device_num(
+        &self
+    ) -> Result<Self::DeviceNum, Self::Error>;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
