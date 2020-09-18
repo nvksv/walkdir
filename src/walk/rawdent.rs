@@ -1,6 +1,6 @@
 use crate::error::{into_io_err, into_path_err, ErrorInner};
 use crate::fs;
-use crate::fs::{FsMetadata, FsFileType, FsPath, FsRootDirEntry, FsReadDirIterator};
+use crate::fs::{FsMetadata, FsRootDirEntry, FsReadDirIterator};
 use crate::wd::{self, FnCmp, IntoOk, IntoSome, Depth};
 use crate::cp::ContentProcessor;
 
@@ -80,10 +80,11 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     }
 
     pub fn follow(self, ctx: &mut E::Context) -> wd::ResultInner<Self, E> {
+        let metadata = self.metadata_follow(ctx)?;
         Self {
             kind:           self.kind,
             follow_link:    true,
-            metadata:       self.metadata_follow(ctx)?,
+            metadata,
         }.into_ok()
     }
 
@@ -316,6 +317,20 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         }.map_err(into_io_err)
     }
 
+    pub fn device_num(
+        &self,
+        ctx: &mut E::Context,
+    ) -> wd::ResultInner<E::DeviceNum, E> {
+        match &self.kind {
+            RawDirEntryKind::Root { fsdent, .. } => {
+                fsdent.device_num(ctx)
+            },
+            RawDirEntryKind::DirEntry { fsdent, .. } => {
+                fsdent.device_num(ctx)
+            },
+        }.map_err(into_io_err)
+    }
+
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -359,12 +374,10 @@ pub enum ReadDir<E: fs::FsDirEntry> {
 impl<E: fs::FsDirEntry> ReadDir<E> {
     
     pub fn new_once(
-        path: &E::Path,
-        ctx: &mut E::Context,
+        raw: RawDirEntry<E>,
     ) -> wd::ResultInner<Self, E> {
-        let raw_dent = RawDirEntry::<E>::from_path( path, ctx )?;
         Self::Once { 
-            item: raw_dent.into_some() 
+            item: raw.into_some() 
         }.into_ok()
     }
 
@@ -381,7 +394,7 @@ impl<E: fs::FsDirEntry> ReadDir<E> {
         process_rawdent: &mut impl (FnMut(wd::ResultInner<RawDirEntry<E>, E>, &mut E::Context) -> Option<T>),
         ctx: &mut E::Context,
     ) -> Vec<T> {
-        match *self {
+        match self {
             ReadDir::Opened { rd } => {
                 let entries = ReadDirOpenedIterator::new( rd, process_rawdent, ctx )
                     .filter_map(|opt| opt)
@@ -390,8 +403,8 @@ impl<E: fs::FsDirEntry> ReadDir<E> {
                 entries
             },
             ReadDir::Once { item } => {
-                let entries = match item {
-                    Some(raw_dent) => match process_rawdent(Ok(raw_dent), ctx) {
+                let entries = match item.take() {
+                    Some(raw) => match process_rawdent(Ok(raw), ctx) {
                         Some(t) => vec![t],
                         None => vec![],
                     },
@@ -448,7 +461,7 @@ where
     E: fs::FsDirEntry,
     P: (FnMut(wd::ResultInner<RawDirEntry<E>, E>, &mut E::Context) -> Option<T>),
 {
-    rd: E::ReadDir,
+    rd: &'c mut E::ReadDir,
     process_rawdent: &'c mut P,
     ctx: &'c mut E::Context,
 }
@@ -459,7 +472,7 @@ where
     P: (FnMut(wd::ResultInner<RawDirEntry<E>, E>, &mut E::Context) -> Option<T>),
 {
     fn new(
-        rd: E::ReadDir,
+        rd: &'c mut E::ReadDir,
         process_rawdent: &'c mut P,
         ctx: &'c mut E::Context,
     ) -> Self {

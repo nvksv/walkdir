@@ -1,10 +1,14 @@
+mod dent;
+
 use std::iter::FromIterator;
 
 use crate::fs;
-use crate::wd::{Depth, IntoSome};
+use crate::wd::Depth;
+
+pub use dent::{DirEntry, DirEntryContentProcessor};
 
 /// Convertor from RawDirEntry into final entry type (e.g. DirEntry)
-pub trait ContentProcessor<E: fs::FsDirEntry>: Default + std::fmt::Debug {
+pub trait ContentProcessor<E: fs::FsDirEntry>: std::fmt::Debug {
     /// Final entry type
     type Item;
     /// Collection of items

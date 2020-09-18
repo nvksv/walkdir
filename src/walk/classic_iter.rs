@@ -1,7 +1,8 @@
 use crate::cp::ContentProcessor;
-use crate::iter::WalkDirIter;
-use crate::storage;
-use crate::wd::{self, Position, WalkDirIteratorItem};
+use crate::walk::iter::WalkDirIter;
+use crate::fs;
+use crate::wd::{self, Position};
+use crate::walk::walk::WalkDirIteratorItem;
 
 /////////////////////////////////////////////////////////////////////////
 //// ClassicWalkDirIter
@@ -9,7 +10,7 @@ use crate::wd::{self, Position, WalkDirIteratorItem};
 /// Classic iterator
 pub trait ClassicWalkDirIter<E, CP>: Sized + Iterator<Item = wd::Result<CP::Item, E>>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
 {
     /// Yields only entries which satisfy the given predicate and skips
@@ -74,7 +75,7 @@ where
 
 pub struct ClassicIter<E, CP, I>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
 {
@@ -84,7 +85,7 @@ where
 
 impl<E, CP, I> ClassicIter<E, CP, I>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
 {
@@ -95,7 +96,7 @@ where
 
 impl<E, CP, I> Iterator for ClassicIter<E, CP, I>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
 {
@@ -121,7 +122,7 @@ where
 
 impl<E, CP, I> ClassicWalkDirIter<E, CP> for ClassicIter<E, CP, I>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
 {
@@ -157,7 +158,7 @@ where
 #[derive(Debug)]
 pub struct ClassicFilterEntry<E, CP, I, P>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = wd::Result<CP::Item, E>> + ClassicWalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -169,7 +170,7 @@ where
 
 impl<E, CP, I, P> Iterator for ClassicFilterEntry<E, CP, I, P>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = wd::Result<CP::Item, E>> + ClassicWalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -207,7 +208,7 @@ where
 
 impl<E, CP, I, P> ClassicFilterEntry<E, CP, I, P>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = wd::Result<CP::Item, E>> + ClassicWalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -312,7 +313,7 @@ where
 
 impl<E, CP, I, P> ClassicWalkDirIter<E, CP> for ClassicFilterEntry<E, CP, I, P>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = wd::Result<CP::Item, E>> + ClassicWalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,

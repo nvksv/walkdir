@@ -1,5 +1,5 @@
-use crate::fs::standard::{StandardDirEntry, StandardReadDir};
-use crate::fs::{FsDirEntry, FsReadDir, FsMetadata};
+use crate::fs::standard::{StandardDirEntry, StandardReadDir, StandardRootDirEntry};
+use crate::fs::{FsDirEntry, FsReadDir, FsMetadata, FsRootDirEntry};
 use crate::wd::IntoOk;
 
 use std::fmt::Debug;
@@ -198,16 +198,22 @@ pub struct WindowsReadDir {
 }
 
 impl WindowsReadDir {
-    fn standard(&self) -> &std::fs::ReadDir {
-        self.standard()
+    fn inner(&self) -> &std::fs::ReadDir {
+        self.standard.inner()
     }
     // fn standard(&self) -> &StandardReadDir {
     //     &self.standard
     // }
+    fn from_standard(standard: StandardReadDir) -> Self {
+        Self {
+            standard
+        }
+    }
 }
 
 /// Functions for FsReadDir
 impl FsReadDir for WindowsReadDir {
+    type Context    = <WindowsDirEntry as FsDirEntry>::Context;
     type Inner      = StandardReadDir;
     type Error      = std::io::Error;
     type DirEntry   = WindowsDirEntry;
@@ -217,7 +223,7 @@ impl FsReadDir for WindowsReadDir {
     }
 
     fn process_inner_entry(&mut self, inner_entry: StandardDirEntry) -> Result<Self::DirEntry, Self::Error> {
-        Self::DirEntry::from_inner(inner_entry)
+        Self::DirEntry::from_standard(inner_entry)
     }
 }
 
@@ -225,7 +231,7 @@ impl Iterator for WindowsReadDir {
     type Item = Result<WindowsDirEntry, std::io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_fsentry()
+        self.next_fsentry(&mut ())
     }
 }
 
@@ -252,11 +258,11 @@ impl WindowsDirEntry {
         &self.standard
     }
 
-    pub fn from_inner(inner: StandardDirEntry) -> Result<Self, std::io::Error> {
-        let metadata = inner.inner().metadata()?;
+    pub fn from_standard(standard: StandardDirEntry) -> Result<Self, std::io::Error> {
+        let metadata = standard.inner().metadata()?;
         Self {
             metadata,
-            standard: inner,
+            standard,
         }.into_ok()
     }
 
@@ -270,24 +276,32 @@ impl WindowsDirEntry {
     fn metadata_from_path(
         path: &<Self as FsDirEntry>::Path,
         follow_link: bool,
-        ctx: &mut <Self as FsDirEntry>::Context,
+        _ctx: &mut <Self as FsDirEntry>::Context,
     ) -> Result<<Self as FsDirEntry>::Metadata, <Self as FsDirEntry>::Error> {
         WindowsMetadata {
-            inner: StandardDirEntry::metadata_from_path( path, follow_link, ctx )?,
+            inner: StandardDirEntry::metadata_from_path( path, follow_link )?,
         }.into_ok()
     }
 
     /// Read dir
     fn read_dir_from_path(
         path: &<Self as FsDirEntry>::Path,
-        ctx: &mut <Self as FsDirEntry>::Context,
+        _ctx: &mut <Self as FsDirEntry>::Context,
     ) -> Result<<Self as FsDirEntry>::ReadDir, <Self as FsDirEntry>::Error> {
         WindowsReadDir {
-            standard: StandardDirEntry::read_dir_from_path(path, ctx)?,
+            standard: StandardDirEntry::read_dir_from_path(path)?,
         }.into_ok()
     }
 
+    /// device_num
+    fn device_num_from_path(
+        path: &<Self as FsDirEntry>::Path,
+    ) -> Result<<Self as FsDirEntry>::DeviceNum, <Self as FsDirEntry>::Error> {
+        use winapi_util::{file, Handle};
 
+        let h = Handle::from_path_any(path)?;
+        file::information(h).map(|info| info.volume_serial_number())
+    }
 }
 
 /// Functions for FsDirEntry
@@ -304,7 +318,7 @@ impl FsDirEntry for WindowsDirEntry {
     type ReadDir        = WindowsReadDir;
     type DirFingerprint = <StandardDirEntry as FsDirEntry>::DirFingerprint;
     type DeviceNum      = u64;
-    type RootDirEntry   = <StandardDirEntry as FsDirEntry>::RootDirEntry;
+    type RootDirEntry   = WindowsRootDirEntry;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path {
@@ -363,11 +377,94 @@ impl FsDirEntry for WindowsDirEntry {
     }
 
     /// device_num
-    fn device_num(&self) -> Result<Self::DeviceNum, Self::Error> {
-        use winapi_util::{file, Handle};
-
-        let h = Handle::from_path_any(self.path())?;
-        file::information(h).map(|info| info.volume_serial_number())
+    fn device_num(
+        &self,
+        _ctx: &mut Self::Context,
+    ) -> Result<Self::DeviceNum, Self::Error> {
+        Self::device_num_from_path( self.path() )
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+
+#[derive(Debug)]
+pub struct WindowsRootDirEntry {
+    standard: StandardRootDirEntry,
+}
+
+/// Functions for FsDirEntry
+impl FsRootDirEntry for WindowsRootDirEntry {
+    type Context    = <WindowsDirEntry as FsDirEntry>::Context;
+    type DirEntry   = WindowsDirEntry;
+
+    fn from_path(
+        path: &<Self::DirEntry as FsDirEntry>::Path,
+        ctx: &mut Self::Context,
+    ) -> Result<(Self, <Self::DirEntry as FsDirEntry>::Metadata), <Self::DirEntry as FsDirEntry>::Error> {
+        let (standard, md) = StandardRootDirEntry::from_path( path, ctx )?;
+        
+        let this = Self {
+            standard,
+        };
+        let metadata = WindowsMetadata::from_inner(md);
+
+        (this, metadata).into_ok()
+    }
+
+    /// Get path of this entry
+    fn path(&self) -> &<Self::DirEntry as FsDirEntry>::Path {
+        self.standard.path()    
+    }
+    /// Get path of this entry
+    fn pathbuf(&self) -> <Self::DirEntry as FsDirEntry>::PathBuf {
+        self.standard.pathbuf()    
+    }
+    /// Get path of this entry
+    fn canonicalize(&self) -> Result<<Self::DirEntry as FsDirEntry>::PathBuf, <Self::DirEntry as FsDirEntry>::Error> {
+        self.standard.canonicalize()    
+    }
+
+    fn file_name(
+        &self
+    ) -> <Self::DirEntry as FsDirEntry>::FileName {
+        self.standard.file_name()    
+    }
+
+    /// Get metadata
+    fn metadata(
+        &self,
+        follow_link: bool,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::Metadata, <Self::DirEntry as FsDirEntry>::Error> {
+        let md = self.standard.metadata( follow_link, ctx )?;
+        let metadata = WindowsMetadata::from_inner(md);
+        metadata.into_ok()
+    }
+
+    /// Read dir
+    fn read_dir(
+        &self,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::ReadDir, <Self::DirEntry as FsDirEntry>::Error> {
+        let rd = self.standard.read_dir( ctx )?;
+        let readdir = WindowsReadDir::from_standard(rd);
+        readdir.into_ok()
+    }
+
+    /// Return the unique handle
+    fn fingerprint(
+        &self,
+        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::DirFingerprint, <Self::DirEntry as FsDirEntry>::Error> {
+        self.standard.fingerprint( ctx )
+    }
+
+    /// device_num
+    fn device_num(
+        &self,
+        _ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error> {
+        WindowsDirEntry::device_num_from_path( self.path() )
+    }
+}

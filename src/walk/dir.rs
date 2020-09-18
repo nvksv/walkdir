@@ -3,7 +3,6 @@ use std::vec;
 
 use crate::walk::rawdent::{RawDirEntry, ReadDir};
 use crate::fs;
-use crate::fs::{FsFileType, FsMetadata};
 use crate::wd::{self, ContentFilter, ContentOrder, Depth, FnCmp, IntoOk, Position};
 use crate::cp::ContentProcessor;
 use crate::walk::opts::WalkDirOptionsImmut;
@@ -116,11 +115,10 @@ where
 {
     /// New DirContent from alone DirEntry
     pub fn new_once(
-        path: &E::Path,
-        ctx: &mut E::Context,
+        raw: RawDirEntry<E>,
     ) -> wd::ResultInner<Self, E> {
         Self {
-            rd: ReadDir::<E>::new_once(path, ctx)?,
+            rd: ReadDir::<E>::new_once(raw)?,
             content: vec![],
             current_pos: None,
             _cp: std::marker::PhantomData,
@@ -417,7 +415,7 @@ where
 
     /// New DirState from alone DirEntry
     pub fn new_once(
-        path: &E::Path,
+        raw: RawDirEntry<E>,
         depth: Depth,
         opts_immut: &WalkDirOptionsImmut,
         sorter: &mut Option<FnCmp<E>>,
@@ -429,7 +427,7 @@ where
     ) -> wd::ResultInner<Self, E> {
         let mut this = Self {
             depth,
-            content: DirContent::<E, CP>::new_once(path, ctx)?,
+            content: DirContent::<E, CP>::new_once(raw)?,
             pass: get_initial_pass(opts_immut),
             position: Position::BeforeContent(()),
             _cp: std::marker::PhantomData,

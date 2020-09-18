@@ -1,4 +1,4 @@
-use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsDirEntry, FsRootDirEntry};
+use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsDirEntry, FsRootDirEntry, FsReadDirIterator};
 use crate::wd::{IntoOk};
 
 use same_file;
@@ -55,18 +55,18 @@ impl FsMetadata for std::fs::Metadata {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// impl FsReadDirIterator for std::fs::ReadDir {
-//     type Context    = ();
-//     type Error      = std::io::Error;
-//     type DirEntry   = std::fs::DirEntry;
+impl FsReadDirIterator for std::fs::ReadDir {
+    type Context    = ();
+    type Error      = std::io::Error;
+    type DirEntry   = std::fs::DirEntry;
 
-//     fn next_entry(
-//         &mut self,
-//         ctx: &mut Self::Context,
-//     ) -> Option<Result<Self::DirEntry, Self::Error>> {
-//         self.next()
-//     }
-// }
+    fn next_entry(
+        &mut self,
+        _ctx: &mut Self::Context,
+    ) -> Option<Result<Self::DirEntry, Self::Error>> {
+        self.next()
+    }
+}
 
 #[derive(Debug)]
 pub struct StandardReadDir {
@@ -150,7 +150,6 @@ impl StandardDirEntry {
     pub fn metadata_from_path(
         path: &<Self as FsDirEntry>::Path,
         follow_link: bool,
-        ctx: &mut <Self as FsDirEntry>::Context,
     ) -> Result<<Self as FsDirEntry>::Metadata, <Self as FsDirEntry>::Error> {
         if follow_link {
             std::fs::metadata(path)    
@@ -162,7 +161,6 @@ impl StandardDirEntry {
     /// Read dir
     pub fn read_dir_from_path(
         path: &<Self as FsDirEntry>::Path,
-        ctx: &mut <Self as FsDirEntry>::Context,
     ) -> Result<<Self as FsDirEntry>::ReadDir, <Self as FsDirEntry>::Error> {
         StandardReadDir {
             inner: std::fs::read_dir(path)?,
@@ -172,7 +170,6 @@ impl StandardDirEntry {
     /// Return the unique handle
     pub fn fingerprint_from_path(
         path: &<Self as FsDirEntry>::Path,
-        ctx: &mut <Self as FsDirEntry>::Context,
     ) -> Result<<Self as FsDirEntry>::DirFingerprint, <Self as FsDirEntry>::Error> {
         StandardDirFingerprint {
             handle: same_file::Handle::from_path(path)?
@@ -181,7 +178,7 @@ impl StandardDirEntry {
 
     /// device_num
     pub fn device_num_from_path(
-        path: &<Self as FsDirEntry>::Path,
+        _path: &<Self as FsDirEntry>::Path,
     ) -> Result<<Self as FsDirEntry>::DeviceNum, <Self as FsDirEntry>::Error> {
         ().into_ok()
     }
@@ -224,25 +221,25 @@ impl FsDirEntry for StandardDirEntry {
     fn metadata(
         &self,
         follow_link: bool,
-        ctx: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) -> Result<Self::Metadata, Self::Error> {
-        Self::metadata_from_path( &self.pathbuf, follow_link, ctx )
+        Self::metadata_from_path( &self.pathbuf, follow_link )
     }
 
     /// Read dir
     fn read_dir(
         &self,
-        ctx: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error> {
-        Self::read_dir_from_path( self.path(), ctx )
+        Self::read_dir_from_path( self.path() )
     }
 
     /// Return the unique handle
     fn fingerprint(
         &self,
-        ctx: &mut Self::Context,
+        _ctx: &mut Self::Context,
     ) -> Result<Self::DirFingerprint, Self::Error> {
-        Self::fingerprint_from_path( self.path(), ctx )
+        Self::fingerprint_from_path( self.path() )
     }
 
     fn is_same(
@@ -253,7 +250,10 @@ impl FsDirEntry for StandardDirEntry {
     }
 
     /// device_num
-    fn device_num(&self) -> Result<Self::DeviceNum, Self::Error> {
+    fn device_num(
+        &self,
+        _ctx: &mut Self::Context,
+    ) -> Result<Self::DeviceNum, Self::Error> {
         Self::device_num_from_path( self.path() )
     }
 }
@@ -270,24 +270,24 @@ pub struct StandardDirFingerprint {
 #[derive(Debug)]
 pub struct StandardRootDirEntry {
     pathbuf:    std::path::PathBuf,
-    metadata:   std::fs::Metadata,
-}
-
-impl StandardRootDirEntry {
-    pub fn from_path(path: &std::path::Path) -> Result<Self, std::io::Error> {
-        let pathbuf  = path.to_path_buf();
-        let metadata = path.metadata()?;
-        Self {
-            pathbuf,
-            metadata,
-        }.into_ok()
-    }
 }
 
 /// Functions for FsDirEntry
 impl FsRootDirEntry for StandardRootDirEntry {
-    type DirEntry = StandardDirEntry;
+    type Context    = <StandardDirEntry as FsDirEntry>::Context;
+    type DirEntry   = StandardDirEntry;
 
+    fn from_path(
+        path: &<Self::DirEntry as FsDirEntry>::Path,
+        _ctx: &mut Self::Context,
+    ) -> Result<(Self, <Self::DirEntry as FsDirEntry>::Metadata), <Self::DirEntry as FsDirEntry>::Error> {
+        let pathbuf  = path.to_path_buf();
+        let metadata = path.metadata()?;
+        let this = Self {
+            pathbuf,
+        };
+        (this, metadata).into_ok()
+    }
 
     /// Get path of this entry
     fn path(&self) -> &<Self::DirEntry as FsDirEntry>::Path {
@@ -312,29 +312,32 @@ impl FsRootDirEntry for StandardRootDirEntry {
     fn metadata(
         &self,
         follow_link: bool,
-        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+        _ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::Metadata, <Self::DirEntry as FsDirEntry>::Error> {
-        StandardDirEntry::metadata_from_path( self.path(), follow_link, ctx )
+        StandardDirEntry::metadata_from_path( self.path(), follow_link )
     }
 
     /// Read dir
     fn read_dir(
         &self,
-        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+        _ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::ReadDir, <Self::DirEntry as FsDirEntry>::Error> {
-        StandardDirEntry::read_dir_from_path( self.path(), ctx )
+        StandardDirEntry::read_dir_from_path( self.path() )
     }
 
     /// Return the unique handle
     fn fingerprint(
         &self,
-        ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+        _ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::DirFingerprint, <Self::DirEntry as FsDirEntry>::Error> {
-        StandardDirEntry::fingerprint_from_path( self.path(), ctx )
+        StandardDirEntry::fingerprint_from_path( self.path() )
     }
 
     /// device_num
-    fn device_num(&self) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error> {
+    fn device_num(
+        &self,
+        _ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error> {
         StandardDirEntry::device_num_from_path( self.path() )
     }
 }

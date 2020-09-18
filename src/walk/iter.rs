@@ -1,8 +1,8 @@
-use crate::classic_iter::ClassicIter;
+use crate::walk::classic_iter::ClassicIter;
 use crate::cp::ContentProcessor;
-use crate::storage;
-use crate::walk::WalkDirIterator;
-use crate::wd::{Position, WalkDirIteratorItem};
+use crate::fs;
+use crate::walk::walk::{WalkDirIterator, WalkDirIteratorItem};
+use crate::wd::{Position};
 
 /////////////////////////////////////////////////////////////////////////
 //// WalkDirIter
@@ -10,7 +10,7 @@ use crate::wd::{Position, WalkDirIteratorItem};
 /// WalkDirIter
 pub trait WalkDirIter<E, CP>: Sized + Iterator<Item = WalkDirIteratorItem<E, CP>>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
 {
     /// Yields only entries which satisfy the given predicate and skips
@@ -77,7 +77,7 @@ where
 
 impl<E, CP> WalkDirIter<E, CP> for WalkDirIterator<E, CP>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
 {
     fn skip_current_dir(&mut self) {
@@ -112,7 +112,7 @@ where
 #[derive(Debug)]
 pub struct FilterEntry<E, CP, I, P>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -124,7 +124,7 @@ where
 
 impl<E, CP, I, P> Iterator for FilterEntry<E, CP, I, P>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -160,7 +160,7 @@ where
 
 impl<E, CP, I, P> FilterEntry<E, CP, I, P>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,
@@ -265,7 +265,7 @@ where
 
 impl<E, CP, I, P> WalkDirIter<E, CP> for FilterEntry<E, CP, I, P>
 where
-    E: storage::StorageExt,
+    E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
     I: Iterator<Item = WalkDirIteratorItem<E, CP>> + WalkDirIter<E, CP>,
     P: FnMut(&CP::Item) -> bool,

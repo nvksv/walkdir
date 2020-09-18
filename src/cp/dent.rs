@@ -1,9 +1,7 @@
 use crate::error::{into_io_err, Error};
-use crate::storage;
-use crate::storage::{StorageFileType, StoragePath};
+use crate::fs;
+use crate::fs::{FsFileType, FsPath, RawDirEntry};
 use crate::wd::{self, Depth};
-// use crate::rawdent::RawDirEntry;
-use crate::dir::FlatDirEntry;
 
 /// A directory entry.
 ///
@@ -32,7 +30,7 @@ use crate::dir::FlatDirEntry;
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
 /// [`DirEntryExt`]: trait.DirEntryExt.html
 #[derive(Debug, Clone)]
-pub struct DirEntry<E: storage::StorageExt = storage::DefaultStorageExt> {
+pub struct DirEntry<E: fs::FsDirEntry = fs::DefaultDirEntry> {
     /// Raw dent
     path: E::PathBuf,
     /// Is normal dir
@@ -43,11 +41,9 @@ pub struct DirEntry<E: storage::StorageExt = storage::DefaultStorageExt> {
     follow_link: bool,
     /// The depth at which this entry was generated relative to the root.
     depth: Depth,
-    /// Extension part
-    ext: E::DirEntryExt,
 }
 
-impl<E: storage::StorageExt> DirEntry<E> {
+impl<E: fs::FsDirEntry> DirEntry<E> {
     /// The full path that this entry represents.
     ///
     /// The full path is created by joining the parents of this entry up to the
@@ -181,4 +177,81 @@ impl DirEntryExt for DirEntry<storage::WalkDirUnixExt> {
     fn ino(&self) -> u64 {
         self.ext.ino
     }
+}
+
+
+use std::vec::Vec;
+
+use crate::cp::ContentProcessor;
+use crate::cp::dent::DirEntry;
+use crate::fs;
+use crate::wd::Depth;
+
+/// Convertor from RawDirEntry into DirEntry
+#[derive(Debug, Default)]
+pub struct DirEntryContentProcessor {}
+
+impl<E: fs::FsDirEntry> ContentProcessor<E> for DirEntryContentProcessor {
+    type Item = DirEntry<E>;
+    type Collection = Vec<DirEntry<E>>;
+
+    /// Convert RawDirEntry into final entry type (e.g. DirEntry)
+    fn process_root_direntry(
+        &self,
+        fsdent: &E::RootDirEntry,
+        is_dir: bool,
+        follow_link: bool,
+        depth: Depth,
+    ) -> Option<Self::Item> {
+
+    }
+
+    /// Convert RawDirEntry into final entry type (e.g. DirEntry)
+    fn process_direntry(
+        &self,
+        fsdent: &E,
+        is_dir: bool,
+        follow_link: bool,
+        depth: Depth,
+    ) -> Option<Self::Item> {
+
+    }
+
+    /// Check if final entry is dir
+    fn is_dir(item: &Self::Item) -> bool {
+        item.is_dir()
+    }
+
+    /// Collects iterator over items into collection
+    fn collect(&self, iter: impl Iterator<Item = Self::Item>) -> Self::Collection {
+        iter.collect()
+    }
+    /// Empty items collection
+    fn empty_collection() -> Self::Collection {
+        vec![]
+    }
+
+    #[inline(always)]
+    fn process_direntry_from_path(
+        &self,
+        path: &E::Path,
+        is_dir: bool,
+        follow_link: bool,
+        depth: Depth,
+        raw_ext: &mut E::RawDirEntryExt,
+        ctx: &mut E::IteratorExt,
+    ) -> Option<Self::Item> {
+        Self::Item::from_flat(flat, depth, ctx).into_some()
+    }
+
+    #[inline(always)]
+    fn process_direntry(
+        &self,
+        flat: &FlatDirEntry<E>,
+        depth: Depth,
+        ctx: &mut E::IteratorExt,
+    ) -> Option<Self::Item> {
+        Self::Item::from_flat(flat, depth, ctx).into_some()
+    }
+
 }

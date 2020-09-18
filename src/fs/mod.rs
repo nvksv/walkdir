@@ -7,6 +7,19 @@ mod windows;
 
 use crate::wd::{IntoSome, IntoErr};
 pub use self::path::{FsPath, FsPathBuf};
+pub use self::standard::{StandardDirEntry, StandardDirFingerprint, StandardReadDir, StandardRootDirEntry};
+pub use self::windows::{WindowsDirEntry, WindowsMetadata, WindowsReadDir, WindowsRootDirEntry};
+
+#[cfg(not(any(unix, windows)))]
+/// Default storage-specific type.
+pub type DefaultDirEntry = StandardDirEntry;
+#[cfg(unix)]
+/// Default source-specific type.
+pub type DefaultDirEntry = UnixDirEntry;
+#[cfg(windows)]
+/// Default source-specific type.
+pub type DefaultDirEntry = WindowsDirEntry;
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -48,7 +61,7 @@ pub trait FsMetadata: Debug + Clone {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 pub trait FsReadDirIterator: Debug + Sized {
-    type Context;
+    type Context: Debug;
 
     type Error: std::error::Error;
     type DirEntry;
@@ -61,10 +74,10 @@ pub trait FsReadDirIterator: Debug + Sized {
 
 /// Functions for FsReadDir
 pub trait FsReadDir: Debug + Sized {
-    type Context;
-    type Inner: FsReadDirIterator<Context = Self::Context>;
-    type Error: FsError<Inner = <Self::Inner as FsReadDirIterator>::Error>;
-    type DirEntry: FsDirEntry<Context = Self::Context, Error = Self::Error>;
+    type Context:   Debug;
+    type Inner:     FsReadDirIterator<Context = Self::Context>;
+    type Error:     FsError<Inner = <Self::Inner as FsReadDirIterator>::Error>;
+    type DirEntry:  FsDirEntry<Context = Self::Context, Error = Self::Error>;
 
     fn inner_mut(&mut self) -> &mut Self::Inner;
     fn process_inner_entry(&mut self, inner_entry: <Self::Inner as FsReadDirIterator>::DirEntry) -> Result<Self::DirEntry, Self::Error>;
@@ -93,38 +106,38 @@ impl<RD> FsReadDirIterator for RD where RD: FsReadDir {
     }
 }
 
-impl<RD, DE, E> FsReadDirIterator for RD where 
-    RD: Iterator<Item=Result<DE, E>>,
-{
-    type Context    = ();
-    type Error      = E;
-    type DirEntry   = DE;
+// impl<RD, DE, E> FsReadDirIterator for RD where 
+//     RD: Iterator<Item=Result<DE, E>>,
+// {
+//     type Context    = ();
+//     type Error      = E;
+//     type DirEntry   = DE;
 
-    fn next_entry(
-        &mut self,
-        ctx: &mut Self::Context,
-    ) -> Option<Result<Self::DirEntry, Self::Error>> {
-        self.next()
-    }
-}
+//     fn next_entry(
+//         &mut self,
+//         ctx: &mut Self::Context,
+//     ) -> Option<Result<Self::DirEntry, Self::Error>> {
+//         self.next()
+//     }
+// }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Functions for FsDirEntry
 pub trait FsDirEntry: Debug + Sized {
-    type Context;
+    type Context:   Debug;
 
-    type Path: FsPath<PathBuf = Self::PathBuf, FileName = Self::FileName> + AsRef<Self::Path> + ?Sized;
-    type PathBuf: for<'p> FsPathBuf<'p> + AsRef<Self::Path> + Deref<Target = Self::Path> + Sized;
-    type FileName: Sized;
+    type Path:      FsPath<PathBuf = Self::PathBuf, FileName = Self::FileName> + AsRef<Self::Path> + ?Sized;
+    type PathBuf:   for<'p> FsPathBuf<'p> + AsRef<Self::Path> + Deref<Target = Self::Path> + Sized;
+    type FileName:  Sized;
 
-    type Error:    FsError;
-    type FileType: FsFileType;
-    type Metadata: FsMetadata<FileType=Self::FileType>;
-    type ReadDir:  FsReadDirIterator<Context=Self::Context, DirEntry=Self, Error=Self::Error>;
-    type DirFingerprint: Debug + Eq;
-    type DeviceNum: Eq + Clone + Copy;
-    type RootDirEntry: FsRootDirEntry<Context=Self::Context, DirEntry=Self>;
+    type Error:             FsError;
+    type FileType:          FsFileType;
+    type Metadata:          FsMetadata<FileType=Self::FileType>;
+    type ReadDir:           FsReadDirIterator<Context=Self::Context, DirEntry=Self, Error=Self::Error>;
+    type DirFingerprint:    Debug + Eq;
+    type DeviceNum:         Debug + Eq + Clone + Copy;
+    type RootDirEntry:      FsRootDirEntry<Context=Self::Context, DirEntry=Self>;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path;
@@ -161,7 +174,8 @@ pub trait FsDirEntry: Debug + Sized {
 
     /// device_num (always follow symlink!)
     fn device_num(
-        &self
+        &self,
+        ctx: &mut Self::Context,
     ) -> Result<Self::DeviceNum, Self::Error>;
 }
 
@@ -169,8 +183,8 @@ pub trait FsDirEntry: Debug + Sized {
 
 /// Functions for FsRootDirEntry
 pub trait FsRootDirEntry: Debug + Sized {
-    type Context;
-    type DirEntry: FsDirEntry<Context=Self::Context, RootDirEntry=Self>;
+    type Context:   Debug;
+    type DirEntry:  FsDirEntry<Context=Self::Context, RootDirEntry=Self>;
 
     /// Get path of this entry
     fn path(&self) -> &<Self::DirEntry as FsDirEntry>::Path;
@@ -206,5 +220,8 @@ pub trait FsRootDirEntry: Debug + Sized {
     ) -> Result<<Self::DirEntry as FsDirEntry>::DirFingerprint, <Self::DirEntry as FsDirEntry>::Error>;
 
     /// device_num
-    fn device_num(&self) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error>;
+    fn device_num(
+        &self,
+        ctx: &mut Self::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error>;
 }

@@ -6,8 +6,7 @@ use crate::walk::dir::{DirState, FlatDirEntry};
 use crate::error::{ErrorInner, Error};
 use crate::walk::opts::{WalkDirOptions, WalkDirOptionsImmut};
 use crate::walk::rawdent::RawDirEntry;
-use crate::fs;
-use crate::fs::{FsFileType, FsMetadata, FsPath};
+use crate::fs::{self, FsMetadata};
 use crate::wd::{
     self, ContentFilter, Depth, FnCmp, IntoOk, IntoSome, Position,
 };
@@ -154,7 +153,6 @@ where
     /// `None`. Conversely, if it is enabled, this is always `Some(...)` after
     /// handling the root path.
     root_device: Option<E::DeviceNum>,
-    ctx: E::Context,
 }
 
 type PushDirData<E, CP> = (DirState<E, CP>, Option<Ancestor<E>>);
@@ -165,7 +163,7 @@ where
     CP: ContentProcessor<E>,
 {
     /// Make new
-    pub fn new(opts: WalkDirOptions<E, CP>, root: E::PathBuf, ctx: E::Context) -> Self {
+    pub fn new(opts: WalkDirOptions<E, CP>, root: E::PathBuf) -> Self {
         Self {
             opts,
             start: Some(root),
@@ -175,7 +173,6 @@ where
             oldest_opened: 0,
             depth: 0,
             root_device: None,
-            ctx,
         }
     }
 
@@ -184,10 +181,10 @@ where
     // - Some(Err(_)) -- some error occured
     // - None -- entry must be ignored
     fn process_rawdent(
-        mut rawdent: RawDirEntry<E>,
+        rawdent: RawDirEntry<E>,
         depth: Depth,
         opts_immut: &WalkDirOptionsImmut,
-        root_device: &Option<E::DeviceNum>,
+        root_device_opt: &Option<E::DeviceNum>,
         ancestors: &Vec<Ancestor<E>>,
         ctx: &mut E::Context,
     ) -> Option<wd::ResultInner<FlatDirEntry<E>, E>> {
@@ -206,7 +203,8 @@ where
 
         if is_normal_dir {
             if opts_immut.same_file_system && depth > 0 {
-                match Self::is_same_file_system(root_device, &rawdent) {
+                let root_device = root_device_opt.as_ref().expect("BUG: called is_same_file_system without root device");
+                match Self::is_same_file_system(root_device, &rawdent, ctx) {
                     Ok(true) => {},
                     Ok(false) => return None,
                     Err(err) => return Err(err).into_some(),    
@@ -233,25 +231,33 @@ where
         }.into_ok().into_some()
     }
 
-    fn init(&mut self, root_path: E::PathBuf) -> wd::ResultInner<(), E> {
+    fn init(
+        &mut self, 
+        root_path: &E::Path, 
+    ) -> wd::ResultInner<(), E> {
+        let root = RawDirEntry::<E>::from_path( root_path, &mut self.opts.ctx )?;
+
         if self.opts.immut.same_file_system {
-            let result = E::device_num(&root_path, &mut self.ctx)
-                .map_err(|e| ErrorInner::<E>::from_path(root_path.clone(), e));
-            self.root_device = Some(result?);
+            self.root_device = Some(root.device_num(&mut self.opts.ctx)?);
         }
-        self.push_root(root_path, 0)?;
+
+        self.push_root(root, 0)?;
 
         Ok(())
     }
 
-    fn push_root(&mut self, root_path: E::PathBuf, new_depth: Depth) -> wd::ResultInner<(), E> {
+    fn push_root(
+        &mut self, 
+        root: RawDirEntry<E>, 
+        depth: Depth
+    ) -> wd::ResultInner<(), E> {
         let state = DirState::<E, CP>::new_once(
-            &root_path,
-            new_depth,
+            root,
+            depth,
             &self.opts.immut,
             &mut self.opts.sorter,
-            &mut process_dent!(self, new_depth),
-            &mut self.ctx,
+            &mut process_dent!(self, depth),
+            &mut self.opts.ctx,
         )?;
 
         self.states.push(state);
@@ -267,7 +273,7 @@ where
             state.load_all(
                 &self.opts.immut,
                 &mut process_dent!(self, state.depth()),
-                &mut self.ctx,
+                &mut self.opts.ctx,
             );
         }
     }
@@ -426,25 +432,22 @@ where
         Ok(None)
     }
 
-    fn make_loop_error<P: AsRef<E::Path>>(
+    fn make_loop_error(
         ancestors: &Vec<Ancestor<E>>,
         depth: Depth,
-        child: P,
+        child: &E::Path,
     ) -> ErrorInner<E> {
         let ancestor = ancestors.get(depth).unwrap();
 
-        ErrorInner::<E>::from_loop(&ancestor.path, child.as_ref())
+        ErrorInner::<E>::from_loop(&ancestor.path, child)
     }
 
     fn is_same_file_system(
-        root_device: &Option<E::DeviceNum>,
+        root_device: &E::DeviceNum,
         dent: &RawDirEntry<E>,
+        ctx: &mut E::Context,
     ) -> wd::ResultInner<bool, E> {
-        let dent_device =
-            E::device_num(dent.path()).map_err(|err| dent.error_inner_from_entry(err))?;
-        Ok(root_device
-            .map(|d| d == dent_device)
-            .expect("BUG: called is_same_file_system without root device"))
+        Ok(*root_device == dent.device_num(ctx)?)
     }
 
     /// Gets content of current dir
@@ -456,7 +459,7 @@ where
             &self.opts.immut,
             &mut self.opts.content_processor,
             &mut process_dent!(self, cur_state.depth()),
-            &mut self.ctx,
+            &mut self.opts.ctx,
         );
 
         content
@@ -469,7 +472,7 @@ macro_rules! next_and_yield_rflat {
         $cur_state.next_position(
             &$self.opts.immut,
             &mut process_dent!($self, $cur_depth),
-            &mut $self.ctx,
+            &mut $self.opts.ctx,
         );
         if let Some(dent) = odent {
             return Position::Entry(dent).into_some();
@@ -519,7 +522,7 @@ where
 
         // Initial actions
         if let Some(start) = self.start.take() {
-            if let Err(e) = self.init(start) {
+            if let Err(e) = self.init(&start) {
                 return Position::Error(Error::from_inner(e, 0)).into_some();
                 // Here self.states is empty, so next call will always return None.
             };
@@ -549,7 +552,7 @@ where
                     cur_state.next_position(
                         &self.opts.immut,
                         &mut process_dent!(self, cur_depth),
-                        &mut self.ctx,
+                        &mut self.opts.ctx,
                     );
 
                     // At root we dont't yield Position::BeforeContent
@@ -561,7 +564,7 @@ where
                         &self.opts.immut,
                         &mut self.opts.content_processor,
                         &mut process_dent!(self, cur_state.depth()),
-                        &mut self.ctx,
+                        &mut self.opts.ctx,
                     );
                     let parent = get_parent_dent(self, cur_depth);
                     return Position::BeforeContent((parent, content)).into_some();
@@ -639,7 +642,7 @@ where
                                     &mut self.opts.sorter,
                                     &self.root_device,
                                     &self.ancestors,
-                                    &mut self.ctx,
+                                    &mut self.opts.ctx,
                                 ) {
                                     Ok(data) => {
                                         self.push_dir_2(data);
@@ -668,7 +671,7 @@ where
                                     cur_state.next_position(
                                         &self.opts.immut,
                                         &mut process_dent!(self, cur_depth),
-                                        &mut self.ctx,
+                                        &mut self.opts.ctx,
                                     );
                                 };
                             }
@@ -686,7 +689,7 @@ where
                             cur_state.next_position(
                                 &self.opts.immut,
                                 &mut process_dent!(self, cur_depth),
-                                &mut self.ctx,
+                                &mut self.opts.ctx,
                             );
                         };
                     }
@@ -700,7 +703,7 @@ where
                     cur_state.next_position(
                         &self.opts.immut,
                         &mut process_dent!(self, cur_depth),
-                        &mut self.ctx,
+                        &mut self.opts.ctx,
                     );
                     return Position::Error(err).into_some();
                 }
