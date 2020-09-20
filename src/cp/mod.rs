@@ -20,6 +20,7 @@ pub trait ContentProcessor<E: fs::FsDirEntry>: std::fmt::Debug {
         fsdent: &E::RootDirEntry,
         is_dir: bool,
         follow_link: bool,
+        metadata: &E::Metadata,
         depth: Depth,
     ) -> Option<Self::Item>;
 

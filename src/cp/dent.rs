@@ -1,7 +1,11 @@
 use crate::error::{into_io_err, Error};
-use crate::fs;
-use crate::fs::{FsFileType, FsPath, RawDirEntry};
-use crate::wd::{self, Depth};
+use crate::fs::{self, FsFileType, FsPath, FsRootDirEntry};
+use crate::wd::{self, Depth, IntoSome};
+use crate::cp::ContentProcessor;
+
+use std::vec::Vec;
+
+/////////////////////////////////////////////////////////////////////////////////
 
 /// A directory entry.
 ///
@@ -36,7 +40,7 @@ pub struct DirEntry<E: fs::FsDirEntry = fs::DefaultDirEntry> {
     /// Is normal dir
     is_dir: bool,
     /// File type
-    ty: E::FileType,
+    metadata: E::Metadata,
     /// Follow link
     follow_link: bool,
     /// The depth at which this entry was generated relative to the root.
@@ -142,6 +146,8 @@ impl<E: fs::FsDirEntry> DirEntry<E> {
         self.depth
     }
 
+    /////////////////////////////////////////////////////////////////////////////////
+    
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
         self.is_dir
@@ -162,6 +168,8 @@ impl<E: fs::FsDirEntry> DirEntry<E> {
     }
 }
 
+/////////////////////////////////////////////////////////////////////////////////
+
 /// Unix-specific extension methods for `walkdir::DirEntry`
 #[cfg(unix)]
 pub trait DirEntryExt {
@@ -179,13 +187,8 @@ impl DirEntryExt for DirEntry<storage::WalkDirUnixExt> {
     }
 }
 
+/////////////////////////////////////////////////////////////////////////////////
 
-use std::vec::Vec;
-
-use crate::cp::ContentProcessor;
-use crate::cp::dent::DirEntry;
-use crate::fs;
-use crate::wd::Depth;
 
 /// Convertor from RawDirEntry into DirEntry
 #[derive(Debug, Default)]
@@ -203,7 +206,13 @@ impl<E: fs::FsDirEntry> ContentProcessor<E> for DirEntryContentProcessor {
         follow_link: bool,
         depth: Depth,
     ) -> Option<Self::Item> {
-
+        Self::Item {
+            path: fsdent.pathbuf(),
+            metadata: fsdent.metadata(),
+            is_dir,
+            follow_link,
+            depth,
+        }.into_some()
     }
 
     /// Convert RawDirEntry into final entry type (e.g. DirEntry)
