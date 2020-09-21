@@ -55,7 +55,7 @@ pub type ResultInner<T, E> =
 
 /// A DirEntry sorter function.
 pub type FnCmp<E> = Box<
-    dyn FnMut( (&E, &<E as fs::FsDirEntry>::Metadata), (&E, &<E as fs::FsDirEntry>::Metadata), ) -> std::cmp::Ordering
+    dyn FnMut( &E, &E, &mut <E as fs::FsDirEntry>::Context, ) -> std::cmp::Ordering
         + Send
         + Sync
         + 'static,

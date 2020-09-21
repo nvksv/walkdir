@@ -143,10 +143,17 @@ pub trait FsDirEntry: Debug + Sized {
     fn path(&self) -> &Self::Path;
     /// Get path of this entry
     fn pathbuf(&self) -> Self::PathBuf;
-    /// Get canonical path of this entry
+    /// Get canonical path of this entry (don't follow symlink!)
     fn canonicalize(&self) -> Result<Self::PathBuf, Self::Error>;
-    /// Get bare name of this entry withot any leading path components
+    /// Get bare name of this entry withot any leading path components (don't follow symlink!)
     fn file_name(&self) -> Self::FileName;
+
+    /// Get file type
+    fn file_type(
+        &self,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::FileType, Self::Error>;
 
     /// Get metadata
     fn metadata(
@@ -199,6 +206,13 @@ pub trait FsRootDirEntry: Debug + Sized {
         path: &<Self::DirEntry as FsDirEntry>::Path,
         ctx: &mut Self::Context,
     ) -> Result<(Self, <Self::DirEntry as FsDirEntry>::Metadata), <Self::DirEntry as FsDirEntry>::Error>;
+
+    /// Get file type
+    fn file_type(
+        &self,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::FileType, <Self::DirEntry as FsDirEntry>::Error>;
 
     /// Get metadata
     fn metadata(

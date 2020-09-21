@@ -109,7 +109,6 @@ impl FsReadDir for StandardReadDir {
 #[derive(Debug)]
 pub struct StandardDirEntry {
     pathbuf:    std::path::PathBuf,
-    ty:         std::fs::FileType,
     inner:      std::fs::DirEntry,
 }
 
@@ -120,11 +119,9 @@ impl StandardDirEntry {
 
     pub fn from_inner(inner: std::fs::DirEntry) -> Result<Self, std::io::Error> {
         let pathbuf = inner.path().to_path_buf();
-        let ty      = inner.file_type()?;
         Self {
             pathbuf,
-            ty,
-            inner
+            inner,
         }.into_ok()
     }
 }
