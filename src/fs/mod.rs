@@ -205,7 +205,7 @@ pub trait FsRootDirEntry: Debug + Sized {
     fn from_path(
         path: &<Self::DirEntry as FsDirEntry>::Path,
         ctx: &mut Self::Context,
-    ) -> Result<(Self, <Self::DirEntry as FsDirEntry>::Metadata), <Self::DirEntry as FsDirEntry>::Error>;
+    ) -> Result<Self, <Self::DirEntry as FsDirEntry>::Error>;
 
     /// Get file type
     fn file_type(

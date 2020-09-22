@@ -154,41 +154,41 @@ use std::fs;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Clone)]
-pub struct WindowsMetadata {
-    inner: std::fs::Metadata,
-}
+// #[derive(Debug, Clone)]
+// pub struct WindowsMetadata {
+//     inner: std::fs::Metadata,
+// }
 
-/// Functions for FsMetadata
-impl WindowsMetadata {
-    pub fn from_inner( inner: std::fs::Metadata, ) -> Self {
-        Self {
-            inner
-        }
-    }
-}
+// /// Functions for FsMetadata
+// impl WindowsMetadata {
+//     pub fn from_inner( inner: std::fs::Metadata, ) -> Self {
+//         Self {
+//             inner
+//         }
+//     }
+// }
 
-/// Functions for FsMetadata
-impl FsMetadata for WindowsMetadata {
-    type FileType = std::fs::FileType;
+// /// Functions for FsMetadata
+// impl FsMetadata for WindowsMetadata {
+//     type FileType = std::fs::FileType;
 
-    /// Get type of this entry
-    fn file_type(&self) -> std::fs::FileType {
-        self.inner.file_type()
-    }
+//     /// Get type of this entry
+//     fn file_type(&self) -> std::fs::FileType {
+//         self.inner.file_type()
+//     }
 
-    /// Is it dir?
-    fn is_dir(&self) -> bool {
-        use std::os::windows::fs::MetadataExt;
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
+//     /// Is it dir?
+//     fn is_dir(&self) -> bool {
+//         use std::os::windows::fs::MetadataExt;
+//         use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
 
-        self.inner.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
-    }
-    /// Is it symlink
-    fn is_symlink(&self) -> bool {
-        self.file_type().is_symlink()
-    }
-}
+//         self.inner.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+//     }
+//     /// Is it symlink
+//     fn is_symlink(&self) -> bool {
+//         self.file_type().is_symlink()
+//     }
+// }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -240,6 +240,7 @@ impl Iterator for WindowsReadDir {
 #[derive(Debug)]
 pub struct WindowsDirEntry {
     standard: StandardDirEntry,
+
     /// The underlying metadata (Windows only). We store this on Windows
     /// because this comes for free while reading a directory.
     ///
@@ -278,9 +279,7 @@ impl WindowsDirEntry {
         follow_link: bool,
         _ctx: &mut <Self as FsDirEntry>::Context,
     ) -> Result<<Self as FsDirEntry>::Metadata, <Self as FsDirEntry>::Error> {
-        WindowsMetadata {
-            inner: StandardDirEntry::metadata_from_path( path, follow_link )?,
-        }.into_ok()
+        StandardDirEntry::metadata_from_path( path, follow_link )
     }
 
     /// Read dir
@@ -314,7 +313,7 @@ impl FsDirEntry for WindowsDirEntry {
 
     type Error          = <StandardDirEntry as FsDirEntry>::Error;
     type FileType       = <StandardDirEntry as FsDirEntry>::FileType;
-    type Metadata       = WindowsMetadata;
+    type Metadata       = std::fs::Metadata;
     type ReadDir        = WindowsReadDir;
     type DirFingerprint = <StandardDirEntry as FsDirEntry>::DirFingerprint;
     type DeviceNum      = u64;
@@ -336,19 +335,31 @@ impl FsDirEntry for WindowsDirEntry {
         self.standard.file_name()
     }
 
+    /// Get file type
+    fn file_type(
+        &self,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::FileType, Self::Error> {
+        if !follow_link {
+            return self.metadata.file_type().into_ok();
+        };
+
+        let metadata = self.metadata(follow_link, ctx)?;
+        metadata.file_type().into_ok()
+    }
+
     /// Get metadata
     fn metadata(
         &self,
         follow_link: bool,
         ctx: &mut Self::Context,
     ) -> Result<Self::Metadata, Self::Error> {
-        let md = if !follow_link {
-            self.metadata.clone()
-        } else {
-            self.standard.metadata(follow_link, ctx)?
-        };
-
-        WindowsMetadata::from_inner(md).into_ok()
+        if !follow_link {
+            return self.metadata.clone().into_ok();
+        }; 
+        
+        self.standard.metadata(follow_link, ctx)
     }
 
     /// Read dir
@@ -401,15 +412,10 @@ impl FsRootDirEntry for WindowsRootDirEntry {
     fn from_path(
         path: &<Self::DirEntry as FsDirEntry>::Path,
         ctx: &mut Self::Context,
-    ) -> Result<(Self, <Self::DirEntry as FsDirEntry>::Metadata), <Self::DirEntry as FsDirEntry>::Error> {
-        let (standard, md) = StandardRootDirEntry::from_path( path, ctx )?;
-        
-        let this = Self {
-            standard,
-        };
-        let metadata = WindowsMetadata::from_inner(md);
-
-        (this, metadata).into_ok()
+    ) -> Result<Self, <Self::DirEntry as FsDirEntry>::Error> {
+        Self {
+            standard: StandardRootDirEntry::from_path( path, ctx )?,
+        }.into_ok()
     }
 
     /// Get path of this entry
@@ -437,9 +443,7 @@ impl FsRootDirEntry for WindowsRootDirEntry {
         follow_link: bool,
         ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::Metadata, <Self::DirEntry as FsDirEntry>::Error> {
-        let md = self.standard.metadata( follow_link, ctx )?;
-        let metadata = WindowsMetadata::from_inner(md);
-        metadata.into_ok()
+        self.standard.metadata( follow_link, ctx )
     }
 
     /// Read dir

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::vec;
 
-use crate::walk::rawdent::{RawDirEntry, ReadDir};
+use crate::rawdent::{RawDirEntry, ReadDir};
 use crate::fs;
 use crate::wd::{self, ContentFilter, ContentOrder, Depth, FnCmp, IntoOk, Position};
 use crate::cp::ContentProcessor;

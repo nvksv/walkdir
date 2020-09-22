@@ -47,8 +47,7 @@ pub struct RawDirEntry<E: fs::FsDirEntry> {
     /// Is set when this entry was created from a symbolic link and the user
     /// expects to follow symbolic links.
     follow_link: bool,
-    /// Cached metadata 
-    metadata: E::Metadata,
+    ty: E::FileType,
 }
 
 impl<E: fs::FsDirEntry> RawDirEntry<E> {
@@ -57,12 +56,13 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         path: &E::Path,
         ctx: &mut E::Context,
     ) -> wd::ResultInner<Self, E> {
-        let (fsdent, metadata) = E::RootDirEntry::from_path( path, ctx )
+        let fsdent = E::RootDirEntry::from_path( path, ctx )
             .map_err(|err| into_path_err(path, err))?;
+        let ty = fsdent.file_type(false, ctx);
         Self {
             kind: RawDirEntryKind::<E>::Root{ fsdent },
             follow_link: false,
-            metadata,
+            ty,
         }.into_ok()
     }
 
@@ -257,7 +257,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
 
     pub fn read_dir(
         &self, 
-        ctx: &mut E::Context
+        ctx: &mut E::Context,
     ) -> wd::ResultInner<ReadDir<E>, E> {
         let rd = match &self.kind {
             RawDirEntryKind::Root { fsdent, .. } => {
@@ -270,17 +270,22 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         ReadDir::<E>::new(rd).into_ok()
     }
 
-    fn as_fsdent_md(&self) -> Option<(&E, &E::Metadata)> {
+    fn as_fsdent_md(&self) -> Option<&E> {
         match &self.kind {
             RawDirEntryKind::Root { .. } => None,
-            RawDirEntryKind::DirEntry { ref fsdent, .. } => (fsdent, &self.metadata).into_some(),
+            RawDirEntryKind::DirEntry { ref fsdent, .. } => fsdent.into_some(),
         }
     }
 
-    pub fn call_cmp(a: &Self, b: &Self, cmp: &mut FnCmp<E>) -> std::cmp::Ordering {
+    pub fn call_cmp(
+        a: &Self, 
+        b: &Self, 
+        cmp: &mut FnCmp<E>,
+        ctx: &mut E::Context,
+    ) -> std::cmp::Ordering {
         let ap = a.as_fsdent_md().unwrap();
         let bp = b.as_fsdent_md().unwrap();
-        cmp(ap, bp)
+        cmp(ap, bp, ctx)
     }
 
     pub fn make_content_item<CP: ContentProcessor<E>>(
@@ -288,13 +293,14 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         content_processor: &CP,
         is_dir: bool,
         depth: Depth,
+        ctx: &mut E::Context,
     ) -> Option<CP::Item> {
         match &self.kind {
             RawDirEntryKind::Root { fsdent, .. } => {
-                content_processor.process_root_direntry( fsdent, is_dir, self.follow_link, depth )
+                content_processor.process_root_direntry( fsdent, is_dir, self.follow_link, depth, ctx )
             },
             RawDirEntryKind::DirEntry { fsdent, .. } => {
-                content_processor.process_direntry( fsdent, is_dir, self.follow_link, depth )
+                content_processor.process_direntry( fsdent, is_dir, self.follow_link, depth, ctx )
             },
         }
     }

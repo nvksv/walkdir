@@ -109,8 +109,9 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md");
 
-mod fs;
 mod error;
+mod fs;
+mod rawdent;
 mod walk;
 mod cp;
 // mod classic_iter;

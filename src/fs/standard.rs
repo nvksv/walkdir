@@ -214,6 +214,20 @@ impl FsDirEntry for StandardDirEntry {
         self.inner.file_name()
     }
 
+    /// Get file type
+    fn file_type(
+        &self,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<Self::FileType, Self::Error> {
+        if !follow_link {
+            return self.inner.file_type();
+        };
+
+        let metadata = self.metadata(follow_link, ctx)?;
+        metadata.file_type().into_ok()
+    }
+
     /// Get metadata
     fn metadata(
         &self,
@@ -277,13 +291,10 @@ impl FsRootDirEntry for StandardRootDirEntry {
     fn from_path(
         path: &<Self::DirEntry as FsDirEntry>::Path,
         _ctx: &mut Self::Context,
-    ) -> Result<(Self, <Self::DirEntry as FsDirEntry>::Metadata), <Self::DirEntry as FsDirEntry>::Error> {
-        let pathbuf  = path.to_path_buf();
-        let metadata = path.metadata()?;
-        let this = Self {
-            pathbuf,
-        };
-        (this, metadata).into_ok()
+    ) -> Result<Self, <Self::DirEntry as FsDirEntry>::Error> {
+        Self {
+            pathbuf: path.to_path_buf(),
+        }.into_ok()
     }
 
     /// Get path of this entry
@@ -303,6 +314,16 @@ impl FsRootDirEntry for StandardRootDirEntry {
         &self
     ) -> <Self::DirEntry as FsDirEntry>::FileName {
         StandardDirEntry::file_name_from_path( self.path() )
+    }
+
+    /// Get file type
+    fn file_type(
+        &self,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::FileType, <Self::DirEntry as FsDirEntry>::Error> {
+        let metadata = self.metadata(follow_link, ctx)?;
+        metadata.file_type().into_ok()
     }
 
     /// Get metadata
