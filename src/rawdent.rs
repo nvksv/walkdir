@@ -58,7 +58,8 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     ) -> wd::ResultInner<Self, E> {
         let fsdent = E::RootDirEntry::from_path( path, ctx )
             .map_err(|err| into_path_err(path, err))?;
-        let ty = fsdent.file_type(false, ctx);
+        let ty = fsdent.file_type(false, ctx)
+            .map_err(|err| into_path_err(path, err))?;
         Self {
             kind: RawDirEntryKind::<E>::Root{ fsdent },
             follow_link: false,
@@ -70,17 +71,17 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         fsdent: E,
         ctx: &mut E::Context,
     ) -> wd::ResultInner<Self, E> {
-        let metadata = fsdent.metadata( false, ctx )
+        let ty = fsdent.file_type(false, ctx)
             .map_err(into_io_err)?;
         Self {
             kind: RawDirEntryKind::<E>::DirEntry{ fsdent },
             follow_link: false,
-            metadata,
+            ty,
         }.into_ok()
     }
 
     pub fn follow(self, ctx: &mut E::Context) -> wd::ResultInner<Self, E> {
-        let metadata = self.metadata_follow(ctx)?;
+        let metadata = self.file_type_internal(ctx)?;
         Self {
             kind:           self.kind,
             follow_link:    true,
@@ -146,20 +147,22 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
     pub fn metadata(
         &self, 
-    ) -> &E::Metadata {
-        &self.metadata
+        ctx: &mut E::Context,
+    ) -> wd::ResultInner<E::Metadata, E> {
+        self.metadata_internal( self.follow_link, ctx )
     }
 
-    pub(crate) fn metadata_follow(
+    pub(crate) fn metadata_internal(
         &self,
+        follow_link: bool,
         ctx: &mut E::Context,
     ) -> wd::ResultInner<E::Metadata, E> {
         match &self.kind {
             RawDirEntryKind::Root { fsdent, .. } => {
-                fsdent.metadata( true, ctx )
+                fsdent.metadata( follow_link, ctx )
             },
             RawDirEntryKind::DirEntry { fsdent, .. } => {
-                fsdent.metadata( true, ctx )
+                fsdent.metadata( follow_link, ctx )
             },
         }.map_err(into_io_err)
     }
