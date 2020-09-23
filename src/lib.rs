@@ -111,7 +111,6 @@ doc_comment::doctest!("../README.md");
 
 mod error;
 mod fs;
-mod rawdent;
 mod walk;
 mod cp;
 // mod classic_iter;

@@ -4,11 +4,13 @@ use std::fmt::Debug;
 mod path;
 mod standard;
 mod windows;
+mod rawdent;
 
 use crate::wd::{IntoSome, IntoErr};
 pub use self::path::{FsPath, FsPathBuf};
 pub use self::standard::{StandardDirEntry, StandardDirFingerprint, StandardReadDir, StandardRootDirEntry};
-pub use self::windows::{WindowsDirEntry, WindowsMetadata, WindowsReadDir, WindowsRootDirEntry};
+pub use self::windows::{WindowsDirEntry, WindowsReadDir, WindowsRootDirEntry};
+pub use self::rawdent::{RawDirEntry, ReadDir};
 
 #[cfg(not(any(unix, windows)))]
 /// Default storage-specific type.
@@ -51,11 +53,6 @@ pub trait FsMetadata: Debug + Clone {
 
     /// Get type of this entry
     fn file_type(&self) -> Self::FileType;
-
-    /// Is it dir?
-    fn is_dir(&self) -> bool;
-    /// Is it symlink
-    fn is_symlink(&self) -> bool;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -184,6 +181,15 @@ pub trait FsDirEntry: Debug + Sized {
         &self,
         ctx: &mut Self::Context,
     ) -> Result<Self::DeviceNum, Self::Error>;
+
+    /// Get cached metadata (if exists)
+    fn to_parts(
+        &mut self,
+        follow_link: bool,
+        force_metadata: bool,
+        force_file_name: bool,
+        ctx: &mut Self::Context,
+    ) -> (Self::PathBuf, Option<Self::Metadata>, Option<Self::FileName>);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -238,4 +244,13 @@ pub trait FsRootDirEntry: Debug + Sized {
         &self,
         ctx: &mut Self::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error>;
+
+    /// Get cached metadata (if exists)
+    fn to_parts(
+        &mut self,
+        follow_link: bool,
+        force_metadata: bool,
+        force_file_name: bool,
+        ctx: &mut Self::Context,
+    ) -> (<Self::DirEntry as FsDirEntry>::PathBuf, Option<<Self::DirEntry as FsDirEntry>::Metadata>, Option<<Self::DirEntry as FsDirEntry>::FileName>);
 }

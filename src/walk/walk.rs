@@ -5,8 +5,7 @@ use crate::cp::ContentProcessor;
 use crate::walk::dir::{DirState, FlatDirEntry};
 use crate::error::{ErrorInner, Error};
 use crate::walk::opts::{WalkDirOptions, WalkDirOptionsImmut};
-use crate::walk::rawdent::RawDirEntry;
-use crate::fs::{self, FsMetadata};
+use crate::fs::{self, RawDirEntry, FsFileType};
 use crate::wd::{
     self, ContentFilter, Depth, FnCmp, IntoOk, IntoSome, Position,
 };
@@ -218,7 +217,7 @@ where
             // the follow_links setting. When it's disabled, it should report
             // itself as a symlink. When it's enabled, it should always report
             // itself as the target.
-            is_normal_dir = match rawdent.metadata_follow(ctx) {
+            is_normal_dir = match rawdent.file_type_follow(ctx) {
                 Ok(v) => v,
                 Err(err) => return Err(err).into_some(),    
             }.is_dir();
@@ -468,7 +467,7 @@ where
 
 macro_rules! next_and_yield_rflat {
     ($self:expr, $cur_state:expr, $cur_depth:expr, $rflat:expr) => {{
-        let odent = $rflat.make_content_item(&mut $self.opts.content_processor);
+        let odent = $rflat.make_content_item(&mut $self.opts.content_processor, &mut $self.opts.ctx);
         $cur_state.next_position(
             &$self.opts.immut,
             &mut process_dent!($self, $cur_depth),
@@ -484,7 +483,7 @@ macro_rules! next_and_yield_rflat {
 
 macro_rules! yield_rflat {
     ($self:expr, $cur_state:expr, $cur_depth:expr, $rflat:expr) => {{
-        let odent = $rflat.make_content_item(&mut $self.opts.content_processor);
+        let odent = $rflat.make_content_item(&mut $self.opts.content_processor, &mut $self.opts.ctx);
         if let Some(dent) = odent {
             return Position::Entry(dent).into_some();
         } else {
@@ -513,8 +512,8 @@ where
         {
             let prev_state = this.states.get_mut(cur_depth - 1).unwrap();
             match prev_state.get_current_position() {
-                Position::Entry(rflat) => {
-                    rflat.make_content_item(&mut this.opts.content_processor).unwrap()
+                Position::Entry(mut rflat) => {
+                    rflat.make_content_item(&mut this.opts.content_processor, &mut this.opts.ctx).unwrap()
                 }
                 _ => unreachable!(),
             }
@@ -569,7 +568,7 @@ where
                     let parent = get_parent_dent(self, cur_depth);
                     return Position::BeforeContent((parent, content)).into_some();
                 }
-                Position::Entry(rflat) => {
+                Position::Entry(mut rflat) => {
                     // Process entry
 
                     // Allow yield this entry if (require all):

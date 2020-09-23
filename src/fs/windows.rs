@@ -394,6 +394,30 @@ impl FsDirEntry for WindowsDirEntry {
     ) -> Result<Self::DeviceNum, Self::Error> {
         Self::device_num_from_path( self.path() )
     }
+
+    fn to_parts(
+        &mut self,
+        follow_link: bool,
+        force_metadata: bool,
+        force_file_name: bool,
+        ctx: &mut Self::Context,
+    ) -> (Self::PathBuf, Option<Self::Metadata>, Option<Self::FileName>) {
+        let (fmd, md) = if !follow_link {
+            (false, Some(self.metadata.clone()))
+        } else {
+            (force_metadata, None)
+        };
+
+        let (pathbuf, smd, n) = self.standard.to_parts( follow_link, fmd, force_file_name, ctx );
+
+        let md = if !follow_link {
+            md
+        } else {
+            smd
+        };
+
+        (pathbuf, md, n)
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -437,6 +461,15 @@ impl FsRootDirEntry for WindowsRootDirEntry {
         self.standard.file_name()    
     }
 
+    /// Get file type
+    fn file_type(
+        &self,
+        follow_link: bool,
+        ctx: &mut Self::Context,
+    ) -> Result<<Self::DirEntry as FsDirEntry>::FileType, <Self::DirEntry as FsDirEntry>::Error> {
+        self.standard.file_type( follow_link, ctx )
+    }
+
     /// Get metadata
     fn metadata(
         &self,
@@ -470,5 +503,15 @@ impl FsRootDirEntry for WindowsRootDirEntry {
         _ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error> {
         WindowsDirEntry::device_num_from_path( self.path() )
+    }
+
+    fn to_parts(
+        &mut self,
+        follow_link: bool,
+        force_metadata: bool,
+        force_file_name: bool,
+        ctx: &mut Self::Context,
+    ) -> (<Self::DirEntry as FsDirEntry>::PathBuf, Option<<Self::DirEntry as FsDirEntry>::Metadata>, Option<<Self::DirEntry as FsDirEntry>::FileName>) {
+        self.standard.to_parts( follow_link, force_metadata, force_file_name, ctx )
     }
 }

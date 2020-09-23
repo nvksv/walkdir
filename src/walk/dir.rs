@@ -1,8 +1,7 @@
 use std::cmp::Ordering;
 use std::vec;
 
-use crate::rawdent::{RawDirEntry, ReadDir};
-use crate::fs;
+use crate::fs::{self, RawDirEntry, ReadDir};
 use crate::wd::{self, ContentFilter, ContentOrder, Depth, FnCmp, IntoOk, Position};
 use crate::cp::ContentProcessor;
 use crate::walk::opts::WalkDirOptionsImmut;
@@ -241,9 +240,13 @@ where
 
     /// Sorts all loaded content.
     /// Changes current position.
-    fn sort_content_and_rewind(&mut self, cmp: &mut FnCmp<E>) {
+    fn sort_content_and_rewind(
+        &mut self, 
+        cmp: &mut FnCmp<E>, 
+        ctx: &mut E::Context,
+    ) {
         self.content.sort_by(|a, b| match (&a.flat, &b.flat) {
-            (&Ok(ref a), &Ok(ref b)) => RawDirEntry::call_cmp(&a.raw, &b.raw, cmp),
+            (&Ok(ref a), &Ok(ref b)) => RawDirEntry::call_cmp(&a.raw, &b.raw, cmp, ctx),
             (&Err(_), &Err(_)) => Ordering::Equal,
             (&Ok(_), &Err(_)) => Ordering::Greater,
             (&Err(_), &Ok(_)) => Ordering::Less,
@@ -264,20 +267,23 @@ where
         ctx: &mut E::Context,
     ) {
         self.load_all(opts_immut, process_rawdent, ctx);
-        self.sort_content_and_rewind(cmp);
+        self.sort_content_and_rewind(cmp, ctx);
     }
 
     // pub fn iter_content<'s, F, T: 's>(&'s self, f: F) -> impl Iterator<Item = &'s T> where F: FnMut(&DirEntryRecord<E>) -> Option<&T> {
     //     self.content.iter().filter_map( f )
     // }
 
-    pub fn iter_content_flats<'s, F, T: 's>(&'s self, f: F) -> impl Iterator<Item = &'s T>
+    pub fn iter_content_flats<'s, F, T: 's>(
+        &'s mut self, 
+        f: F
+    ) -> impl Iterator<Item = &'s mut T>
     where
-        F: FnMut(&FlatDirEntry<E>) -> Option<&T>,
+        F: FnMut(&mut FlatDirEntry<E>) -> Option<&mut T>,
     {
         self.content
-            .iter()
-            .filter_map(|rec: &DirEntryRecord<E>| rec.flat.as_ref().ok())
+            .iter_mut()
+            .filter_map(|rec: &mut DirEntryRecord<E>| rec.flat.as_mut().ok())
             .filter_map(f)
     }
 }
@@ -307,10 +313,11 @@ where
     }
 
     pub fn make_content_item (
-        &self,
+        &mut self,
         content_processor: &mut CP,
+        ctx: &mut E::Context,
     ) -> Option<CP::Item> {
-        self.flat.raw.make_content_item( content_processor, self.flat.is_dir, self.depth )
+        self.flat.raw.make_content_item( content_processor, self.flat.is_dir, self.depth, ctx )
     }
 
     pub fn as_flat(&self) -> &FlatDirEntry<E> {
@@ -563,7 +570,7 @@ where
         &mut self,
         filter: ContentFilter,
         opts_immut: &WalkDirOptionsImmut,
-        content_processor: &mut CP,
+        content_processor: &CP,
         process_rawdent: &mut impl (FnMut(
             RawDirEntry<E>,
             &mut E::Context,
@@ -572,26 +579,28 @@ where
     ) -> CP::Collection {
         self.content.load_all(opts_immut, process_rawdent, ctx);
 
+        let depth = self.depth();
+
         match filter {
             ContentFilter::None => {
                 let iter = self
                     .content
                     .iter_content_flats(|flat| Some(flat))
-                    .filter_map(|flat| flat.raw.make_content_item( content_processor, flat.is_dir, self.depth() ));
+                    .filter_map(|flat| flat.raw.make_content_item( content_processor, flat.is_dir, depth, ctx ));
                 content_processor.collect(iter)
             }
             ContentFilter::DirsOnly => {
                 let iter = self
                     .content
                     .iter_content_flats(|flat| if flat.is_dir { Some(flat) } else { None })
-                    .filter_map(|flat| flat.raw.make_content_item( content_processor, flat.is_dir, self.depth() ));
+                    .filter_map(|flat| flat.raw.make_content_item( content_processor, flat.is_dir, depth, ctx ));
                 content_processor.collect(iter)
             }
             ContentFilter::FilesOnly => {
                 let iter = self
                     .content
                     .iter_content_flats(|flat| if !flat.is_dir { Some(flat) } else { None })
-                    .filter_map(|flat| flat.raw.make_content_item( content_processor, flat.is_dir, self.depth() ));
+                    .filter_map(|flat| flat.raw.make_content_item( content_processor, flat.is_dir, depth, ctx ));
                 content_processor.collect(iter)
             }
             ContentFilter::SkipAll => CP::empty_collection(),

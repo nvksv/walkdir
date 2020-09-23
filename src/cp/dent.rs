@@ -1,6 +1,6 @@
-use crate::error::{into_io_err, Error};
-use crate::fs::{self, FsFileType, FsPath, FsRootDirEntry};
-use crate::wd::{self, Depth, IntoSome};
+//use crate::error::{into_io_err, Error};
+use crate::fs::{self, FsFileType, FsRootDirEntry, FsMetadata};
+use crate::wd::{Depth, IntoSome};
 use crate::cp::ContentProcessor;
 
 use std::vec::Vec;
@@ -37,12 +37,14 @@ use std::vec::Vec;
 pub struct DirEntry<E: fs::FsDirEntry = fs::DefaultDirEntry> {
     /// Raw dent
     path: E::PathBuf,
-    /// Is normal dir
-    is_dir: bool,
-    /// File type
-    metadata: E::Metadata,
     /// Follow link
     follow_link: bool,
+    /// Is normal dir
+    is_dir: bool,
+    /// Cached metadata
+    metadata: E::Metadata,
+    /// Cached file name
+    file_name: E::FileName,
     /// The depth at which this entry was generated relative to the root.
     depth: Depth,
 }
@@ -87,7 +89,7 @@ impl<E: fs::FsDirEntry> DirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::read_link(entry.path())`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
     pub fn path_is_symlink(&self) -> bool {
-        self.ty.is_symlink() || self.follow_link
+        self.metadata.file_type().is_symlink() || self.follow_link
     }
 
     /// Return the metadata for the file that this entry points to.
@@ -112,9 +114,8 @@ impl<E: fs::FsDirEntry> DirEntry<E> {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    pub fn metadata(&self) -> wd::Result<E::Metadata, E> {
-        E::dent_metadata(&self.path, self.follow_link, &self.ext)
-            .map_err(|err| Error::<E>::from_inner(into_io_err(err), self.depth))
+    pub fn metadata(&self) -> &E::Metadata {
+        &self.metadata
     }
 
     /// Return the file type for the file that this entry points to.
@@ -126,7 +127,7 @@ impl<E: fs::FsDirEntry> DirEntry<E> {
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     pub fn file_type(&self) -> E::FileType {
-        self.ty.clone()
+        self.metadata.file_type()
     }
 
     /// Return the file name of this entry.
@@ -134,7 +135,7 @@ impl<E: fs::FsDirEntry> DirEntry<E> {
     /// If this entry has no file name (e.g., `/`), then the full path is
     /// returned.
     pub fn file_name(&self) -> &E::FileName {
-        E::get_file_name(&self.path)
+        &self.file_name
     }
 
     /// Returns the depth at which this entry was created relative to the root.
@@ -151,20 +152,6 @@ impl<E: fs::FsDirEntry> DirEntry<E> {
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
         self.is_dir
-    }
-
-    pub(crate) fn from_parts(
-        path: &E::Path,
-        is_dir: bool,
-        follow_link: bool,
-        depth: Depth,
-        raw_ext: &mut E::RawDirEntryExt,
-        ctx: &mut E::IteratorExt,
-    ) -> Self {
-        let pb = path.to_path_buf();
-        let dent_ext = E::dent_new(path, raw_ext, ctx);
-
-        Self { path: pb, is_dir: flat.is_dir, ty, follow_link, depth, ext }
     }
 }
 
@@ -201,16 +188,20 @@ impl<E: fs::FsDirEntry> ContentProcessor<E> for DirEntryContentProcessor {
     /// Convert RawDirEntry into final entry type (e.g. DirEntry)
     fn process_root_direntry(
         &self,
-        fsdent: &E::RootDirEntry,
-        is_dir: bool,
+        fsdent: &mut E::RootDirEntry,
         follow_link: bool,
+        is_dir: bool,
         depth: Depth,
+        ctx: &mut E::Context,
     ) -> Option<Self::Item> {
+        let (path, metadata, file_name) = fsdent.to_parts( follow_link, true, true, ctx ); 
+
         Self::Item {
-            path: fsdent.pathbuf(),
-            metadata: fsdent.metadata(),
-            is_dir,
+            path,
             follow_link,
+            is_dir,
+            metadata: metadata.unwrap(),
+            file_name: file_name.unwrap(),
             depth,
         }.into_some()
     }
@@ -218,12 +209,22 @@ impl<E: fs::FsDirEntry> ContentProcessor<E> for DirEntryContentProcessor {
     /// Convert RawDirEntry into final entry type (e.g. DirEntry)
     fn process_direntry(
         &self,
-        fsdent: &E,
-        is_dir: bool,
+        fsdent: &mut E,
         follow_link: bool,
+        is_dir: bool,
         depth: Depth,
+        ctx: &mut E::Context,
     ) -> Option<Self::Item> {
+        let (path, metadata, file_name) = fsdent.to_parts( follow_link, true, true, ctx ); 
 
+        Self::Item {
+            path,
+            follow_link,
+            is_dir,
+            metadata: metadata.unwrap(),
+            file_name: file_name.unwrap(),
+            depth,
+        }.into_some()
     }
 
     /// Check if final entry is dir
@@ -238,29 +239,6 @@ impl<E: fs::FsDirEntry> ContentProcessor<E> for DirEntryContentProcessor {
     /// Empty items collection
     fn empty_collection() -> Self::Collection {
         vec![]
-    }
-
-    #[inline(always)]
-    fn process_direntry_from_path(
-        &self,
-        path: &E::Path,
-        is_dir: bool,
-        follow_link: bool,
-        depth: Depth,
-        raw_ext: &mut E::RawDirEntryExt,
-        ctx: &mut E::IteratorExt,
-    ) -> Option<Self::Item> {
-        Self::Item::from_flat(flat, depth, ctx).into_some()
-    }
-
-    #[inline(always)]
-    fn process_direntry(
-        &self,
-        flat: &FlatDirEntry<E>,
-        depth: Depth,
-        ctx: &mut E::IteratorExt,
-    ) -> Option<Self::Item> {
-        Self::Item::from_flat(flat, depth, ctx).into_some()
     }
 
 }

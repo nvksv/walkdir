@@ -377,7 +377,7 @@ where
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
     where
-        F: FnMut((&E, &E::Metadata), (&E, &E::Metadata)) -> std::cmp::Ordering + Send + Sync + 'static,
+        F: FnMut((&E, &E::FileType), (&E, &E::FileType), &mut E::Context) -> std::cmp::Ordering + Send + Sync + 'static,
     {
         self.opts.sorter = Some(Box::new(cmp));
         self

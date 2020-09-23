@@ -1,5 +1,5 @@
 use super::{FsError, FsFileType, FsMetadata, FsReadDir, FsDirEntry, FsRootDirEntry, FsReadDirIterator};
-use crate::wd::{IntoOk};
+use crate::wd::{IntoOk, IntoSome};
 
 use same_file;
 
@@ -41,15 +41,6 @@ impl FsMetadata for std::fs::Metadata {
     /// Get type of this entry
     fn file_type(&self) -> std::fs::FileType {
         std::fs::Metadata::file_type(self)    
-    }
-
-    /// Is it dir?
-    fn is_dir(&self) -> bool {
-        self.file_type().is_dir()
-    }
-    /// Is it symlink
-    fn is_symlink(&self) -> bool {
-        self.file_type().is_symlink()
     }
 }
 
@@ -267,6 +258,18 @@ impl FsDirEntry for StandardDirEntry {
     ) -> Result<Self::DeviceNum, Self::Error> {
         Self::device_num_from_path( self.path() )
     }
+
+    fn to_parts(
+        &mut self,
+        follow_link: bool,
+        force_metadata: bool,
+        force_file_name: bool,
+        ctx: &mut Self::Context,
+    ) -> (Self::PathBuf, Option<Self::Metadata>, Option<Self::FileName>) {
+        let md = if force_metadata {self.metadata(follow_link, ctx).ok()} else {None};
+        let n = if force_file_name {self.file_name().into_some()} else {None};
+        (self.pathbuf.clone(), md, n)
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -357,5 +360,17 @@ impl FsRootDirEntry for StandardRootDirEntry {
         _ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error> {
         StandardDirEntry::device_num_from_path( self.path() )
+    }
+
+    fn to_parts(
+        &mut self,
+        follow_link: bool,
+        force_metadata: bool,
+        force_file_name: bool,
+        ctx: &mut Self::Context,
+    ) -> (<Self::DirEntry as FsDirEntry>::PathBuf, Option<<Self::DirEntry as FsDirEntry>::Metadata>, Option<<Self::DirEntry as FsDirEntry>::FileName>) {
+        let md = if force_metadata {self.metadata(follow_link, ctx).ok()} else {None};
+        let n = if force_file_name {self.file_name().into_some()} else {None};
+        (self.pathbuf.clone(), md, n)
     }
 }

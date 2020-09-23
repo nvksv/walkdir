@@ -17,20 +17,21 @@ pub trait ContentProcessor<E: fs::FsDirEntry>: std::fmt::Debug {
     /// Convert RawDirEntry into final entry type (e.g. DirEntry)
     fn process_root_direntry(
         &self,
-        fsdent: &E::RootDirEntry,
-        is_dir: bool,
+        fsdent: &mut E::RootDirEntry,
         follow_link: bool,
-        metadata: &E::Metadata,
+        is_dir: bool,
         depth: Depth,
+        ctx: &mut E::Context,
     ) -> Option<Self::Item>;
 
     /// Convert RawDirEntry into final entry type (e.g. DirEntry)
     fn process_direntry(
         &self,
-        fsdent: &E,
-        is_dir: bool,
+        fsdent: &mut E,
         follow_link: bool,
+        is_dir: bool,
         depth: Depth,
+        ctx: &mut E::Context,
     ) -> Option<Self::Item>;
 
     /// Check if final entry is dir
