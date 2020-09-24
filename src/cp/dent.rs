@@ -155,24 +155,24 @@ impl<E: fs::FsDirEntry> DirEntry<E> {
     }
 }
 
-/////////////////////////////////////////////////////////////////////////////////
+// /////////////////////////////////////////////////////////////////////////////////
 
-/// Unix-specific extension methods for `walkdir::DirEntry`
-#[cfg(unix)]
-pub trait DirEntryExt {
-    /// Returns the underlying `d_ino` field in the contained `dirent`
-    /// structure.
-    fn ino(&self) -> u64;
-}
+// /// Unix-specific extension methods for `walkdir::DirEntry`
+// #[cfg(unix)]
+// pub trait DirEntryExt {
+//     /// Returns the underlying `d_ino` field in the contained `dirent`
+//     /// structure.
+//     fn ino(&self) -> u64;
+// }
 
-#[cfg(unix)]
-impl DirEntryExt for DirEntry<storage::WalkDirUnixExt> {
-    /// Returns the underlying `d_ino` field in the contained `dirent`
-    /// structure.
-    fn ino(&self) -> u64 {
-        self.ext.ino
-    }
-}
+// #[cfg(unix)]
+// impl DirEntryExt for DirEntry<fs::UnixDirEntry> {
+//     /// Returns the underlying `d_ino` field in the contained `dirent`
+//     /// structure.
+//     fn ino(&self) -> u64 {
+//         self.inner().ino
+//     }
+// }
 
 /////////////////////////////////////////////////////////////////////////////////
 

@@ -128,7 +128,6 @@ use crate::fs::{FsDirEntry, FsReadDir, FsRootDirEntry};
 use crate::wd::IntoOk;
 
 use std::fmt::Debug;
-use std::fs;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -260,7 +259,7 @@ impl FsDirEntry for UnixDirEntry {
     type ReadDir        = UnixReadDir;
     type DirFingerprint = <StandardDirEntry as FsDirEntry>::DirFingerprint;
     type DeviceNum      = u64;
-    type RootDirEntry   = WindowsRootDirEntry;
+    type RootDirEntry   = UnixRootDirEntry;
 
     /// Get path of this entry
     fn path(&self) -> &Self::Path {
@@ -337,21 +336,7 @@ impl FsDirEntry for UnixDirEntry {
         force_file_name: bool,
         ctx: &mut Self::Context,
     ) -> (Self::PathBuf, Option<Self::Metadata>, Option<Self::FileName>) {
-        let (fmd, md) = if !follow_link {
-            (false, Some(self.metadata.clone()))
-        } else {
-            (force_metadata, None)
-        };
-
-        let (pathbuf, smd, n) = self.standard.to_parts( follow_link, fmd, force_file_name, ctx );
-
-        let md = if !follow_link {
-            md
-        } else {
-            smd
-        };
-
-        (pathbuf, md, n)
+        self.standard.to_parts( follow_link, force_metadata, force_file_name, ctx )
     }
 }
 
@@ -359,12 +344,12 @@ impl FsDirEntry for UnixDirEntry {
 
 /// An optimized for Windows FsRootDirEntry implementation using std::fs::* objects 
 #[derive(Debug)]
-pub struct WindowsRootDirEntry {
+pub struct UnixRootDirEntry {
     standard: StandardRootDirEntry,
 }
 
 /// Functions for FsDirEntry
-impl FsRootDirEntry for WindowsRootDirEntry {
+impl FsRootDirEntry for UnixRootDirEntry {
     type Context    = <UnixDirEntry as FsDirEntry>::Context;
     type DirEntry   = UnixDirEntry;
 
