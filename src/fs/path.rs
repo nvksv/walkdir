@@ -9,12 +9,15 @@ use crate::wd::IntoSome;
 /// Functions for StorageExt::Path
 pub trait FsPath: Ord
 {
+    /// Associated owned path type
     type PathBuf: Sized;
+    /// Associated owned file name type
     type FileName: Sized;
 
     /// Copy to owned
     fn to_path_buf(&self) -> Self::PathBuf;
 
+    /// Try to get file name from path
     fn file_name(&self) -> Option<Self::FileName>;
 }
 

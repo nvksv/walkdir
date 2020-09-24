@@ -13,17 +13,28 @@ use crate::walk::classic_iter::ClassicIter;
 /////////////////////////////////////////////////////////////////////////
 //// WalkDirOptions
 
+/// Immutable options
 pub struct WalkDirOptionsImmut
 {
+    /// Check for same filesystem
     pub same_file_system: bool,
+    /// Allow to follow symlinks
     pub follow_links: bool,
+    /// Yield loop symlinks (without following them) -- otherwise it will be interpreted as errors
     pub yield_loop_links: bool,
+    /// Max count of opened dirs
     pub max_open: usize,
+    /// Minimal depth for yield
     pub min_depth: Depth,
+    /// Maximal depth for yield
     pub max_depth: Depth,
+    /// Yield content of dir (recursive) and then the dir -- othewise the dir will be yielded first before its content
     pub contents_first: bool,
+    /// Filter content yield (in Position::Entry(...))
     pub content_filter: ContentFilter,
+    /// Control order of files and dirs
     pub content_order: ContentOrder,
+    /// Yield Position::BeforeContent((dir, Same(ItemsCollection))) -- otherwise Position::BeforeContent((dir, None)) will be yielded
     pub yield_before_content_with_content: bool,
 }
 
@@ -44,14 +55,19 @@ impl Default for WalkDirOptionsImmut {
     }
 }
 
+/// Options for WalkDir
 pub struct WalkDirOptions<E, CP>
 where
     E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
 {
+    /// immutable options
     pub immut: WalkDirOptionsImmut,
+    /// Sorter object
     pub sorter: Option<FnCmp<E>>,
+    /// Content processor
     pub content_processor: CP,
+    /// The fs context
     pub ctx: E::Context,
 }
 
@@ -76,6 +92,7 @@ where
     E: fs::FsDirEntry,
     CP: ContentProcessor<E>,
 {
+    /// Create with non-default fs context and content processor objects
     pub fn with_context( 
         ctx: E::Context, 
         content_processor: CP,

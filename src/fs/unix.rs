@@ -1,3 +1,128 @@
+// use crate::storage::{Nil, StorageExt};
+
+// use std::fmt::Debug;
+// use std::fs;
+// use std::io;
+// use std::path;
+
+// use same_file;
+
+// use crate::dent::DirEntry;
+
+// #[derive(Debug, Clone)]
+// pub struct RawDirEntryUnixExt {
+//     /// The underlying inode number (Unix only).
+//     pub(crate) ino: u64,
+// }
+
+// /// Unix-specific extensions
+// #[derive(Debug, Clone)]
+// pub struct WalkDirUnixExt {}
+
+// impl StorageExt for WalkDirUnixExt {
+//     type BuilderCtx = Nil;
+
+//     type OptionsExt = Nil;
+//     type IteratorExt = Nil;
+//     type AncestorExt = Nil;
+//     type DirEntryExt = DirEntryUnixExt;
+//     type RawDirEntryExt = DirEntryUnixExt;
+
+//     type FsError = std::io::Error;
+//     type FsFileName = std::ffi::OsStr;
+//     type FsDirEntry = std::fs::DirEntry;
+//     type FsReadDir = std::fs::ReadDir;
+//     type FsFileType = std::fs::FileType;
+//     type FsMetadata = std::fs::Metadata;
+
+//     type Path = path::Path;
+//     type PathBuf = path::PathBuf;
+
+//     type SameFileHandle = same_file::Handle;
+
+//     /// Make new builder
+//     #[allow(unused_variables)]
+//     fn builder_new<P: AsRef<Self::Path>>(root: P, ctx: Option<Self::BuilderCtx>) -> Self {
+//         Self {}
+//     }
+
+//     /// Make new ancestor
+//     fn ancestor_new(dent: &Self::DirEntry) -> Result<Self::AncestorExt, Self::Error> {
+//         Ok(Self::AncestorExt {})
+//     }
+
+//     #[allow(unused_variables)]
+//     fn iterator_new(self) -> Self::IteratorExt {
+//         Self::IteratorExt {}
+//     }
+
+//     /// Create extension from DirEntry
+//     fn rawdent_from_fsentry(ent: &Self::DirEntry) -> Result<Self::RawDirEntryExt, Self::Error> {
+//         (Self::RawDirEntryExt { ino: ent.ino() }).into_ok()
+//     }
+
+//     /// Create extension from metadata
+//     fn rawdent_from_path<P: AsRef<Self::Path>>(
+//         path: P,
+//         follow_link: bool,
+//         md: Self::Metadata,
+//         ctx: &mut Self::IteratorExt,
+//     ) -> Result<Self::RawDirEntryExt, Self::Error> {
+//         Self::RawDirEntryExt { ino: md.ino() }
+//     }
+
+//     fn metadata<P: AsRef<Self::Path>>(
+//         path: P,
+//         follow_link: bool,
+//         raw_ext: Option<&Self::RawDirEntryExt>,
+//         ctx: &mut Self::IteratorExt,
+//     ) -> Result<Self::Metadata, Self::Error> {
+//         if follow_link {
+//             fs::metadata(path)
+//         } else {
+//             fs::symlink_metadata(path)
+//         }
+//     }
+
+//     #[allow(unused_variables)]
+//     fn read_dir<P: AsRef<Self::Path>>(
+//         path: P,
+//         raw_ext: &Self::RawDirEntryExt,
+//         ctx: &mut Self::IteratorExt,
+//     ) -> Result<Self::ReadDir, Self::Error> {
+//         fs::read_dir(path.as_ref())
+//     }
+
+//     fn get_handle<P: AsRef<Self::Path>>(path: P) -> io::Result<Self::SameFileHandle> {
+//         same_file::Handle::from_path(path)
+//     }
+
+//     #[allow(unused_variables)]
+//     fn is_same(
+//         ancestor_path: &Self::PathBuf,
+//         ancestor_ext: &Self::AncestorExt,
+//         child: &Self::SameFileHandle,
+//     ) -> io::Result<bool> {
+//         Ok(child == &Self::get_handle(ancestor_path)?)
+//     }
+
+//     #[allow(unused_variables)]
+//     fn dent_from_rawdent(raw: &Self::RawDirEntryExt) -> Self::DirEntryExt {
+//         raw
+//     }
+
+//     fn device_num<P: AsRef<Self::Path>>(path: P) -> io::Result<u64> {
+//         use std::os::unix::fs::MetadataExt;
+
+//         path.as_ref().metadata().map(|md| md.dev())
+//     }
+
+//     fn get_file_name(path: &Self::PathBuf) -> &Self::FileName {
+//         path.file_name().unwrap_or_else(|| path.as_os_str())
+//     }
+// }
+
+
 use crate::fs::standard::{StandardDirEntry, StandardReadDir, StandardRootDirEntry};
 use crate::fs::{FsDirEntry, FsReadDir, FsRootDirEntry};
 use crate::wd::IntoOk;
@@ -7,13 +132,13 @@ use std::fs;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-/// An optimized for Windows FsReadDir implementation using std::fs::* objects 
+/// An optimized for Unix FsReadDir implementation using std::fs::* objects 
 #[derive(Debug)]
-pub struct WindowsReadDir {
+pub struct UnixReadDir {
     standard: StandardReadDir,
 }
 
-impl WindowsReadDir {
+impl UnixReadDir {
     /// Get inner fs object
     pub fn inner(&self) -> &std::fs::ReadDir {
         self.standard.inner()
@@ -30,11 +155,11 @@ impl WindowsReadDir {
 }
 
 /// Functions for FsReadDir
-impl FsReadDir for WindowsReadDir {
-    type Context    = <WindowsDirEntry as FsDirEntry>::Context;
+impl FsReadDir for UnixReadDir {
+    type Context    = <UnixDirEntry as FsDirEntry>::Context;
     type Inner      = StandardReadDir;
     type Error      = std::io::Error;
-    type DirEntry   = WindowsDirEntry;
+    type DirEntry   = UnixDirEntry;
 
     fn inner_mut(&mut self) -> &mut Self::Inner {
         &mut self.standard
@@ -45,8 +170,8 @@ impl FsReadDir for WindowsReadDir {
     }
 }
 
-impl Iterator for WindowsReadDir {
-    type Item = Result<WindowsDirEntry, std::io::Error>;
+impl Iterator for UnixReadDir {
+    type Item = Result<UnixDirEntry, std::io::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_fsentry(&mut ())
@@ -57,19 +182,14 @@ impl Iterator for WindowsReadDir {
 
 /// An optimized for Windows FsDirEntry implementation using std::fs::* objects 
 #[derive(Debug)]
-pub struct WindowsDirEntry {
+pub struct UnixDirEntry {
     standard: StandardDirEntry,
 
-    /// The underlying metadata (Windows only). We store this on Windows
-    /// because this comes for free while reading a directory.
-    ///
-    /// We use this to determine whether an entry is a directory or not, which
-    /// works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    metadata: fs::Metadata,
+    /// The underlying inode number (Unix only).
+    pub ino: u64,
 }
 
-impl WindowsDirEntry {
+impl UnixDirEntry {
     /// Get inner fs object
     pub fn inner(&self) -> &std::fs::DirEntry {
         self.standard.inner()
@@ -82,10 +202,12 @@ impl WindowsDirEntry {
 
     /// Makes optimized object from standard
     pub fn from_standard(standard: StandardDirEntry) -> Result<Self, std::io::Error> {
-        let metadata = standard.inner().metadata()?;
+        use std::os::unix::fs::DirEntryExt;
+
+        let ino = standard.inner().ino();
         Self {
-            metadata,
             standard,
+            ino,
         }.into_ok()
     }
 
@@ -109,7 +231,7 @@ impl WindowsDirEntry {
     //     path: &<Self as FsDirEntry>::Path,
     //     _ctx: &mut <Self as FsDirEntry>::Context,
     // ) -> Result<<Self as FsDirEntry>::ReadDir, <Self as FsDirEntry>::Error> {
-    //     WindowsReadDir {
+    //     UnixReadDir {
     //         standard: StandardDirEntry::read_dir_from_path(path)?,
     //     }.into_ok()
     // }
@@ -118,15 +240,14 @@ impl WindowsDirEntry {
     fn device_num_from_path(
         path: &<Self as FsDirEntry>::Path,
     ) -> Result<<Self as FsDirEntry>::DeviceNum, <Self as FsDirEntry>::Error> {
-        use winapi_util::{file, Handle};
+        use std::os::unix::fs::MetadataExt;
 
-        let h = Handle::from_path_any(path)?;
-        file::information(h).map(|info| info.volume_serial_number())
+        path.metadata().map(|md| md.dev())
     }
 }
 
 /// Functions for FsDirEntry
-impl FsDirEntry for WindowsDirEntry {
+impl FsDirEntry for UnixDirEntry {
     type Context        = <StandardDirEntry as FsDirEntry>::Context;
 
     type Path           = <StandardDirEntry as FsDirEntry>::Path;
@@ -136,7 +257,7 @@ impl FsDirEntry for WindowsDirEntry {
     type Error          = <StandardDirEntry as FsDirEntry>::Error;
     type FileType       = <StandardDirEntry as FsDirEntry>::FileType;
     type Metadata       = std::fs::Metadata;
-    type ReadDir        = WindowsReadDir;
+    type ReadDir        = UnixReadDir;
     type DirFingerprint = <StandardDirEntry as FsDirEntry>::DirFingerprint;
     type DeviceNum      = u64;
     type RootDirEntry   = WindowsRootDirEntry;
@@ -163,10 +284,6 @@ impl FsDirEntry for WindowsDirEntry {
         follow_link: bool,
         ctx: &mut Self::Context,
     ) -> Result<Self::FileType, Self::Error> {
-        if !follow_link {
-            return self.metadata.file_type().into_ok();
-        };
-
         let metadata = self.metadata(follow_link, ctx)?;
         metadata.file_type().into_ok()
     }
@@ -177,10 +294,6 @@ impl FsDirEntry for WindowsDirEntry {
         follow_link: bool,
         ctx: &mut Self::Context,
     ) -> Result<Self::Metadata, Self::Error> {
-        if !follow_link {
-            return self.metadata.clone().into_ok();
-        }; 
-        
         self.standard.metadata(follow_link, ctx)
     }
 
@@ -189,7 +302,7 @@ impl FsDirEntry for WindowsDirEntry {
         &self,
         ctx: &mut Self::Context,
     ) -> Result<Self::ReadDir, Self::Error> {
-        WindowsReadDir {
+        UnixReadDir {
             standard: self.standard.read_dir(ctx)?,
         }.into_ok()
     }
@@ -252,8 +365,8 @@ pub struct WindowsRootDirEntry {
 
 /// Functions for FsDirEntry
 impl FsRootDirEntry for WindowsRootDirEntry {
-    type Context    = <WindowsDirEntry as FsDirEntry>::Context;
-    type DirEntry   = WindowsDirEntry;
+    type Context    = <UnixDirEntry as FsDirEntry>::Context;
+    type DirEntry   = UnixDirEntry;
 
     fn from_path(
         path: &<Self::DirEntry as FsDirEntry>::Path,
@@ -307,7 +420,7 @@ impl FsRootDirEntry for WindowsRootDirEntry {
         ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::ReadDir, <Self::DirEntry as FsDirEntry>::Error> {
         let rd = self.standard.read_dir( ctx )?;
-        let readdir = WindowsReadDir::from_standard(rd);
+        let readdir = UnixReadDir::from_standard(rd);
         readdir.into_ok()
     }
 
@@ -324,7 +437,7 @@ impl FsRootDirEntry for WindowsRootDirEntry {
         &self,
         _ctx: &mut <Self::DirEntry as FsDirEntry>::Context,
     ) -> Result<<Self::DirEntry as FsDirEntry>::DeviceNum, <Self::DirEntry as FsDirEntry>::Error> {
-        WindowsDirEntry::device_num_from_path( self.path() )
+        UnixDirEntry::device_num_from_path( self.path() )
     }
 
     fn to_parts(

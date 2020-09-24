@@ -1,11 +1,11 @@
 mod dent;
 
-use std::iter::FromIterator;
-
 use crate::fs;
 use crate::wd::Depth;
 
 pub use dent::{DirEntry, DirEntryContentProcessor};
+
+use std::iter::FromIterator;
 
 /// Convertor from RawDirEntry into final entry type (e.g. DirEntry)
 pub trait ContentProcessor<E: fs::FsDirEntry>: std::fmt::Debug {

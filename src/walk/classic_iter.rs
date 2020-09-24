@@ -73,6 +73,7 @@ where
 /////////////////////////////////////////////////////////////////////////
 //// ClassicIntoIter
 
+/// Classic-style walkdir iterator
 pub struct ClassicIter<E, CP, I>
 where
     E: fs::FsDirEntry,

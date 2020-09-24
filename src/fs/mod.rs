@@ -3,14 +3,19 @@ use std::fmt::Debug;
 
 mod path;
 mod standard;
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
 mod windows;
-mod rawdent;
 
 use crate::wd::{IntoSome, IntoErr};
 pub use self::path::{FsPath, FsPathBuf};
 pub use self::standard::{StandardDirEntry, StandardDirFingerprint, StandardReadDir, StandardRootDirEntry};
+
+#[cfg(unix)]
+pub use self::unix::{UnixDirEntry, UnixReadDir, UnixRootDirEntry};
+#[cfg(windows)]
 pub use self::windows::{WindowsDirEntry, WindowsReadDir, WindowsRootDirEntry};
-pub use self::rawdent::{RawDirEntry, ReadDir};
 
 #[cfg(not(any(unix, windows)))]
 /// Default storage-specific type.
@@ -27,6 +32,7 @@ pub type DefaultDirEntry = WindowsDirEntry;
 
 /// Functions for FsMetadata
 pub trait FsError: 'static + std::error::Error + Debug {
+    /// Inner error type
     type Inner: std::error::Error;
 
     /// Creates a new I/O error from a known kind of error as well as an arbitrary error payload.
@@ -49,6 +55,7 @@ pub trait FsFileType: Clone + Copy + Debug {
 
 /// Functions for FsMetadata
 pub trait FsMetadata: Debug + Clone {
+    /// Associated FileType type
     type FileType: FsFileType;
 
     /// Get type of this entry
@@ -57,12 +64,17 @@ pub trait FsMetadata: Debug + Clone {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+/// Iterator over FsReadDir
 pub trait FsReadDirIterator: Debug + Sized {
+    /// Associated fs context
     type Context: Debug;
 
+    /// Associated error type
     type Error: std::error::Error;
+    /// Associated FsDirEntry implementation type
     type DirEntry;
 
+    /// Get next dir entry
     fn next_entry(
         &mut self, 
         ctx: &mut Self::Context,
@@ -71,14 +83,21 @@ pub trait FsReadDirIterator: Debug + Sized {
 
 /// Functions for FsReadDir
 pub trait FsReadDir: Debug + Sized {
+    /// Associated fs context
     type Context:   Debug;
+    /// Underlying ReadDir object type
     type Inner:     FsReadDirIterator<Context = Self::Context>;
+    /// Associated error type
     type Error:     FsError<Inner = <Self::Inner as FsReadDirIterator>::Error>;
+    /// Associated FsDirEntry implementation type
     type DirEntry:  FsDirEntry<Context = Self::Context, Error = Self::Error>;
 
+    /// Get inner ReadDir object
     fn inner_mut(&mut self) -> &mut Self::Inner;
+    /// Convert inner DirEntry object into associated DirEntry
     fn process_inner_entry(&mut self, inner_entry: <Self::Inner as FsReadDirIterator>::DirEntry) -> Result<Self::DirEntry, Self::Error>;
 
+    /// Iterate over dir content
     fn next_fsentry(
         &mut self,
         ctx: &mut Self::Context,
@@ -122,18 +141,29 @@ impl<RD> FsReadDirIterator for RD where RD: FsReadDir {
 
 /// Functions for FsDirEntry
 pub trait FsDirEntry: Debug + Sized {
+    /// Associated fs context
     type Context:   Debug;
 
+    /// Path type (unsized)
     type Path:      FsPath<PathBuf = Self::PathBuf, FileName = Self::FileName> + AsRef<Self::Path> + ?Sized;
+    /// Owned path type
     type PathBuf:   for<'p> FsPathBuf<'p> + AsRef<Self::Path> + Deref<Target = Self::Path> + Sized;
+    /// Owned file name type
     type FileName:  Sized;
 
+    /// Error type
     type Error:             FsError;
+    /// FileType type
     type FileType:          FsFileType;
+    /// Metadata type
     type Metadata:          FsMetadata<FileType=Self::FileType>;
+    /// FsReadDir implementation object type
     type ReadDir:           FsReadDirIterator<Context=Self::Context, DirEntry=Self, Error=Self::Error>;
+    /// Fingerprint type
     type DirFingerprint:    Debug + Eq;
+    /// Device num type
     type DeviceNum:         Debug + Eq + Clone + Copy;
+    /// FsRootReadDir implementation object type
     type RootDirEntry:      FsRootDirEntry<Context=Self::Context, DirEntry=Self>;
 
     /// Get path of this entry
@@ -171,6 +201,7 @@ pub trait FsDirEntry: Debug + Sized {
         ctx: &mut Self::Context,
     ) -> Result<Self::DirFingerprint, Self::Error>;
 
+    /// Compare two dirs for sameness
     fn is_same(
         lhs: (&Self::Path, &Self::DirFingerprint),
         rhs: (&Self::Path, &Self::DirFingerprint),
@@ -196,7 +227,9 @@ pub trait FsDirEntry: Debug + Sized {
 
 /// Functions for FsRootDirEntry
 pub trait FsRootDirEntry: Debug + Sized {
+    /// Associated fs context
     type Context:   Debug;
+    /// Associated FsDirEntry implementation type
     type DirEntry:  FsDirEntry<Context=Self::Context, RootDirEntry=Self>;
 
     /// Get path of this entry
@@ -208,6 +241,7 @@ pub trait FsRootDirEntry: Debug + Sized {
     /// Get bare name of this entry withot any leading path components
     fn file_name(&self) -> <Self::DirEntry as FsDirEntry>::FileName;
 
+    /// Create new root dir entry object from path
     fn from_path(
         path: &<Self::DirEntry as FsDirEntry>::Path,
         ctx: &mut Self::Context,

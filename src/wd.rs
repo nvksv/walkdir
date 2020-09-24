@@ -4,7 +4,9 @@ use crate::fs;
 // pub use crate::dent::DirEntry;
 use crate::error::{Error, ErrorInner};
 
+/// An useful wrapper for Some(...) ready to chaining
 pub trait IntoSome<T> {
+    /// Some(...)
     fn into_some(self) -> Option<T>;
 }
 
@@ -14,7 +16,9 @@ impl<T> IntoSome<T> for T {
     }
 }
 
+/// An useful wrapper for Ok(...) ready to chaining
 pub trait IntoOk<T, E> {
+    /// Ok(...)
     fn into_ok(self) -> std::result::Result<T, E>;
 }
 
@@ -24,7 +28,9 @@ impl<T, E> IntoOk<T, E> for T {
     }
 }
 
+/// An useful wrapper for Err(...) ready to chaining
 pub trait IntoErr<T, E> {
+    /// Err(...)
     fn into_err(self) -> std::result::Result<T, E>;
 }
 
@@ -50,6 +56,7 @@ pub type Depth = usize;
 /// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
 pub type Result<T, E> = ::std::result::Result<T, Error<E>>;
 
+/// A result type for walkdir operations with inner errors.
 pub type ResultInner<T, E> =
     ::std::result::Result<T, ErrorInner<E>>;
 

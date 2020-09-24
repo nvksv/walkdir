@@ -1,5 +1,5 @@
 use crate::error::{into_io_err, into_path_err, ErrorInner};
-use crate::fs::{self, FsMetadata, FsRootDirEntry, FsReadDirIterator, FsFileType};
+use crate::fs::{self, FsRootDirEntry, FsReadDirIterator, FsFileType};
 use crate::wd::{self, FnCmp, IntoOk, IntoSome, Depth};
 use crate::cp::ContentProcessor;
 
@@ -52,6 +52,7 @@ pub struct RawDirEntry<E: fs::FsDirEntry> {
 
 impl<E: fs::FsDirEntry> RawDirEntry<E> {
 
+    /// Create new object from path (with root dir entry)
     pub fn from_path(
         path: &E::Path,
         ctx: &mut E::Context,
@@ -67,6 +68,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         }.into_ok()
     }
 
+    /// Create new object from fs entry
     pub fn from_fsdent(
         fsdent: E,
         ctx: &mut E::Context,
@@ -80,6 +82,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         }.into_ok()
     }
 
+    /// Follow symlink and makes new object
     pub fn follow(self, ctx: &mut E::Context) -> wd::ResultInner<Self, E> {
         let ty = self.file_type_internal(true, ctx)?;
         Self {
@@ -227,6 +230,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         self.ty.is_dir()
     }
 
+    /// Return follow_link flag
     pub fn follow_link(&self) -> bool {
         self.follow_link
     }
@@ -271,6 +275,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     //     ReadDir::<E>::new_once(rawdent).into_ok()
     // }
 
+    /// Get ReadDir object for this entry
     pub fn read_dir(
         &self, 
         ctx: &mut E::Context,
@@ -293,6 +298,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         }
     }
 
+    /// Call compare function
     pub fn call_cmp(
         a: &Self, 
         b: &Self, 
@@ -304,6 +310,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         cmp(ap, bp, ctx)
     }
 
+    /// Create content item
     pub fn make_content_item<CP: ContentProcessor<E>>(
         &mut self,
         content_processor: &CP,
@@ -325,6 +332,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
     //     ErrorInner::<E>::from_entry(self.get_fs_dir_entry().unwrap(), err)
     // }
 
+    /// Get fingerprint
     pub fn fingerprint(
         &self,
         ctx: &mut E::Context,
@@ -339,6 +347,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         }.map_err(into_io_err)
     }
 
+    /// Get device num
     pub fn device_num(
         &self,
         ctx: &mut E::Context,
@@ -353,6 +362,7 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
         }.map_err(into_io_err)
     }
 
+    /// Get parts
     pub fn to_parts(
         &mut self,
         force_metadata: bool,
@@ -385,7 +395,10 @@ impl<E: fs::FsDirEntry> RawDirEntry<E> {
 #[derive(Debug)]
 pub enum ReadDir<E: fs::FsDirEntry> {
     /// The single item (used for root)
-    Once { item: Option<RawDirEntry<E>> },
+    Once { 
+        /// Item to be returned
+        item: Option<RawDirEntry<E>> 
+    },
 
     /// An opened handle.
     ///
@@ -397,7 +410,10 @@ pub enum ReadDir<E: fs::FsDirEntry> {
     ///
     /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
     /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
-    Opened { rd: E::ReadDir },
+    Opened { 
+        /// Underlying ReadDir
+        rd: E::ReadDir 
+    },
 
     /// A closed handle.
     ///
@@ -410,6 +426,7 @@ pub enum ReadDir<E: fs::FsDirEntry> {
 
 impl<E: fs::FsDirEntry> ReadDir<E> {
     
+    /// Create new ReadDir returning one entry
     pub fn new_once(
         raw: RawDirEntry<E>,
     ) -> wd::ResultInner<Self, E> {
@@ -418,6 +435,7 @@ impl<E: fs::FsDirEntry> ReadDir<E> {
         }.into_ok()
     }
 
+    /// Create new ReadDir
     fn new(rd: E::ReadDir) -> Self {
         // match rd {
         //     Ok(rd) => Self::Opened { rd },
@@ -426,6 +444,7 @@ impl<E: fs::FsDirEntry> ReadDir<E> {
         Self::Opened { rd }
     }
 
+    /// Collect all content and make this ReadDir closed
     pub fn collect_all<T>(
         &mut self,
         process_rawdent: &mut impl (FnMut(wd::ResultInner<RawDirEntry<E>, E>, &mut E::Context) -> Option<T>),
@@ -465,6 +484,7 @@ impl<E: fs::FsDirEntry> ReadDir<E> {
         }
     }
 
+    /// Get next dir entry
     #[inline(always)]
     pub fn next(
         &mut self,

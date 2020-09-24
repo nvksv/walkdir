@@ -40,9 +40,9 @@ impl<E: fs::FsDirEntry> ErrorInner<E> {
         Self::Io { path: Some(pb), err: Some(err) }
     }
 
-    pub(crate) fn from_entry(fsdent: &E, err: E::Error) -> Self {
-        Self::Io { path: Some(fsdent.path().to_path_buf()), err: Some(err) }
-    }
+    // pub(crate) fn from_entry(fsdent: &E, err: E::Error) -> Self {
+    //     Self::Io { path: Some(fsdent.path().to_path_buf()), err: Some(err) }
+    // }
 
     pub(crate) fn from_io(err: E::Error) -> Self {
         Self::Io { path: None, err: Some(err) }

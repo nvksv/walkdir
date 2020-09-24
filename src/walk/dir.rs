@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
 use std::vec;
 
-use crate::fs::{self, RawDirEntry, ReadDir};
 use crate::wd::{self, ContentFilter, ContentOrder, Depth, FnCmp, IntoOk, Position};
+use crate::fs;
+use crate::walk::rawdent::{RawDirEntry, ReadDir};
 use crate::cp::ContentProcessor;
 use crate::walk::opts::WalkDirOptionsImmut;
 use crate::error::{ErrorInner, Error};

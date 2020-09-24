@@ -59,12 +59,14 @@ impl FsReadDirIterator for std::fs::ReadDir {
     }
 }
 
+/// A FsReadDir implementation using std::fs::* objects
 #[derive(Debug)]
 pub struct StandardReadDir {
     inner:      std::fs::ReadDir,
 }
 
 impl StandardReadDir {
+    /// Get inner fs object
     pub fn inner(&self) -> &std::fs::ReadDir {
         &self.inner
     }
@@ -97,6 +99,7 @@ impl FsReadDir for StandardReadDir {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+/// A FsDirEntry implementation using std::fs::* objects
 #[derive(Debug)]
 pub struct StandardDirEntry {
     pathbuf:    std::path::PathBuf,
@@ -104,10 +107,12 @@ pub struct StandardDirEntry {
 }
 
 impl StandardDirEntry {
+    /// Get inner fs object
     pub fn inner(&self) -> &std::fs::DirEntry {
         &self.inner
     }
 
+    /// Makes new StandardDirEntry from inner fs object
     pub fn from_inner(inner: std::fs::DirEntry) -> Result<Self, std::io::Error> {
         let pathbuf = inner.path().to_path_buf();
         Self {
@@ -119,12 +124,14 @@ impl StandardDirEntry {
 
 impl StandardDirEntry {
 
+    /// Canonicalize given path
     pub fn canonicalize_from_path(
         path: &<Self as FsDirEntry>::Path
     ) -> Result<<Self as FsDirEntry>::PathBuf, <Self as FsDirEntry>::Error> {
         std::fs::canonicalize(path)
     }
 
+    /// Get file name from given path
     pub fn file_name_from_path(
         path: &<Self as FsDirEntry>::Path,
     ) -> <Self as FsDirEntry>::FileName {
@@ -274,6 +281,7 @@ impl FsDirEntry for StandardDirEntry {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+/// A fingerprint for dir
 #[derive(Debug, PartialEq, Eq)]
 pub struct StandardDirFingerprint {
     handle: same_file::Handle,
@@ -281,6 +289,7 @@ pub struct StandardDirFingerprint {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 
+/// A FsRootDirEntry implementation using std::fs::* objects
 #[derive(Debug)]
 pub struct StandardRootDirEntry {
     pathbuf:    std::path::PathBuf,

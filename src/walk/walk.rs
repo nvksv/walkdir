@@ -2,10 +2,11 @@ use std::cmp;
 use std::vec;
 
 use crate::cp::ContentProcessor;
+use crate::fs::{self, FsFileType};
 use crate::walk::dir::{DirState, FlatDirEntry};
+use crate::walk::rawdent::{RawDirEntry};
 use crate::error::{ErrorInner, Error};
 use crate::walk::opts::{WalkDirOptions, WalkDirOptionsImmut};
-use crate::fs::{self, RawDirEntry, FsFileType};
 use crate::wd::{
     self, ContentFilter, Depth, FnCmp, IntoOk, IntoSome, Position,
 };

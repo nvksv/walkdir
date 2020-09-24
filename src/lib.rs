@@ -126,7 +126,6 @@ mod wd;
 // pub use crate::dent::DirEntry;
 // #[cfg(unix)]
 // pub use crate::dent::DirEntryExt;
-// pub use crate::error::Error;
 
 // pub use crate::classic_iter::ClassicWalkDirIter;
 // pub use crate::cp::{ContentProcessor, DirEntryContentProcessor};
@@ -138,3 +137,9 @@ mod wd;
 
 // /// Default (classic) WalkDir
 // pub type WalkDir = WalkDirBuilder<storage::DefaultStorageExt, DirEntryContentProcessor>;
+
+pub use wd::*;
+pub use walk::*;
+pub use error::Error;
+pub use fs::*;
+pub use cp::*;
